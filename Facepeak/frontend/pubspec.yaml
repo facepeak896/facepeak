@@ -1,0 +1,57 @@
+name: frontend
+description: FacePeak frontend
+publish_to: 'none'
+
+version: 1.0.1+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  image_picker: ^1.1.2
+  file_picker: ^8.0.0
+  http: ^1.2.0
+  shared_preferences: ^2.5.5
+
+  # 🔐 SECURE STORAGE (ADDED)
+  flutter_secure_storage: ^9.0.0
+
+  # 🔑 UUID FOR GUEST TOKEN GENERATION
+  uuid: ^4.5.1
+
+  # 🔥 GOOGLE MOBILE ADS (REWARDED ADS)
+  google_mobile_ads: ^5.0.0
+
+  # 🔥 SHARE (ULTRA VIRAL SCREEN)
+  share_plus: ^10.0.0
+
+  # 🔥 REQUIRED FOR SCREENSHOT SAVE
+  path_provider: ^2.1.4
+
+  # 🔥 PREMIUM FONTS
+  google_fonts: ^6.1.0
+
+  # ================================
+  # 🔥🔥🔥 CAMERA + AI (NEW)
+  # ================================
+
+  # 📸 CAMERA (REALTIME)
+  camera: ^0.11.0+2
+
+  # 🤖 FACE DETECTION (ML KIT)
+  google_mlkit_face_detection: ^0.13.2
+
+  # 🔄 IMAGE CONVERSION (needed for ML)
+  image: ^4.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
