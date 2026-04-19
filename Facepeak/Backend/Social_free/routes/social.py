@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, constr
 
-from Backend.database import get_db
+from Backend.Social_free.login.database import get_db
 from Backend.Social_free.login.security import get_current_user
 from Backend.Social_free.models.user import User
 

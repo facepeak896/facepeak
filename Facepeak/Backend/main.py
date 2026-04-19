@@ -43,6 +43,9 @@ from Backend.Social_free.models.user import User
 from Backend.routes.ai_analysis import router as ai_analysis_router
 from Backend.routes.uploads import router as uploads_router
 from Backend.Social_free.login.routes.auth_router import router as auth_router
+from Backend.Social_free.routes.social import router as profile_router
+# 🔥 DODANO (SOCIAL ROUTE)
+from Backend.Social_free.routes.social_activation_routes import router as social_router
 
 API_V1 = "/api/v1"
 
@@ -90,6 +93,18 @@ app.include_router(
     auth_router,
     prefix=f"{API_V1}/auth",
     tags=["Auth"],
+)
+
+# 🔥 DODANO (SOCIAL)
+app.include_router(
+    social_router,
+    prefix=f"{API_V1}",
+    tags=["Social"],
+)
+app.include_router(
+    profile_router,
+    prefix=f"{API_V1}/profile",
+    tags=["Profile"],
 )
 
 # ======================

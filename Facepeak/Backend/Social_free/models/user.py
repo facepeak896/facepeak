@@ -27,8 +27,27 @@ class User(Base):
     is_active = Column(Boolean, nullable=False, server_default=text("true"), index=True)
     is_banned = Column(Boolean, nullable=False, server_default=text("false"), index=True)
 
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
-    last_active_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    # 🔥 SOCIAL LIVE STATE
+    is_live = Column(Boolean, nullable=False, server_default=text("false"), index=True)
+    social_activated_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    has_seen_social_explainer = Column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True,
+    )
+
+    last_active_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
 
     # =========================
     # 🔥 RELATIONS
@@ -58,4 +77,5 @@ class User(Base):
     __table_args__ = (
         Index("idx_user_active_created", "is_active", "created_at"),
         Index("idx_user_last_active", "last_active_at"),
+        Index("idx_user_live_created", "is_live", "created_at"),
     )

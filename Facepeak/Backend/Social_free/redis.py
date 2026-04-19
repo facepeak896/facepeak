@@ -1,6 +1,6 @@
 import os
-import redis
 import logging
+import redis.asyncio as redis
 
 logger = logging.getLogger(__name__)
 
@@ -13,36 +13,51 @@ redis_client = redis.Redis(
     port=REDIS_PORT,
     db=REDIS_DB,
     decode_responses=True,
+    max_connections=100,            # 🔥 više za concurrency
+    socket_timeout=2,
+    socket_connect_timeout=2,
 )
 
 # =========================
-# SAFE WRAPPERS (NE RUŠI APP)
+# SAFE WRAPPERS (ASYNC)
 # =========================
 
-def safe_get(key: str):
+async def safe_get(key: str):
     try:
-        return redis_client.get(key)
+        return await redis_client.get(key)
     except Exception as e:
         logger.error(f"[REDIS GET ERROR] {e}")
         return None
 
 
-def safe_set(key: str, value: str, ex: int | None = None):
+async def safe_set(key: str, value: str, ex: int | None = None):
     try:
-        redis_client.set(key, value, ex=ex)
+        await redis_client.set(key, value, ex=ex)
     except Exception as e:
         logger.error(f"[REDIS SET ERROR] {e}")
 
 
-def safe_delete(key: str):
+async def safe_delete(key: str):
     try:
-        redis_client.delete(key)
+        await redis_client.delete(key)
     except Exception as e:
         logger.error(f"[REDIS DELETE ERROR] {e}")
 
 
-def redis_ping() -> bool:
+# =========================
+# 🔥 ATOMIC GETDEL
+# =========================
+
+async def safe_getdel(key: str):
     try:
-        return redis_client.ping()
+        return await redis_client.execute_command("GETDEL", key)
+    except Exception as e:
+        logger.error(f"[REDIS GETDEL ERROR] {e}")
+        return None
+
+
+async def redis_ping() -> bool:
+    try:
+        return await redis_client.ping()
     except Exception:
         return False

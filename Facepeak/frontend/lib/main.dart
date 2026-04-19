@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+// 🔥 FIREBASE
+import 'package:firebase_core/firebase_core.dart';
+
 import 'package:frontend/features/analysis/screens/app_entry.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 🔥 INIT FIREBASE
+  await Firebase.initializeApp();
 
   // 🔒 LOCK ORIENTATION (portrait only)
   SystemChrome.setPreferredOrientations([

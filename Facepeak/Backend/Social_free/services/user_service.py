@@ -46,8 +46,24 @@ class UserService:
 
         stats = user.stats
 
-        # 🔥 PSL (already cached layer)
-        psl = await self.psl_service.get_latest_psl(db, user_id)
+        # 🔥 PSL
+        raw_psl = await self.psl_service.get_latest_psl(db, user_id)
+
+        # 🔥 NORMALIZE PSL SHAPE FOR FRONTEND
+        psl = {
+            "psl_score": 0,
+            "tier": "",
+            "percentile": 0,
+            "confidence": 0.0,
+        }
+
+        if raw_psl:
+            psl = {
+                "psl_score": raw_psl.get("psl_score", raw_psl.get("score", 0)),
+                "tier": raw_psl.get("tier", ""),
+                "percentile": raw_psl.get("percentile", 0),
+                "confidence": raw_psl.get("confidence", 0.0),
+            }
 
         snapshot = {
             "id": user.id,
@@ -62,7 +78,7 @@ class UserService:
             "matches": stats.matches_count if stats else 0,
             "profile_views": stats.profile_views_count if stats else 0,
 
-            "psl": psl
+            "psl": psl,
         }
 
         # 🔥 CACHE WRITE (ANTI-STAMPEDE)

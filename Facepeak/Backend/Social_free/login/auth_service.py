@@ -1,28 +1,21 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from fastapi import HTTPException
-from datetime import datetime, timedelta
 import uuid
 import hashlib
+
+# FIREBASE
+from firebase_admin import auth as firebase_auth
 
 # MODELS
 from Backend.Social_free.models.user import User
 from Backend.Social_free.models.user_stats import UserStats
 
 # SERVICES
-from Backend.Social_free.login.password_service import (
-    hash_password,
-    verify_password,
-)
-
 from Backend.Social_free.login.token_service import (
     create_access_token,
     create_refresh_token,
     decode_token,
-)
-
-from Backend.Social_free.login.email_service import (
-    send_reset_password_email,
 )
 
 from Backend.Social_free.redis import safe_set, safe_get, safe_delete
@@ -39,10 +32,6 @@ REFRESH_TTL = 60 * 60 * 24 * 7
 # HELPERS
 # =========================
 
-def normalize_email(email: str) -> str:
-    return email.lower().strip()
-
-
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
@@ -52,86 +41,46 @@ def generate_jti():
 
 
 # =========================
-# SIGNUP
+# GOOGLE LOGIN
 # =========================
 
-async def signup_user(email: str, username: str, password: str, db: AsyncSession):
+async def google_login(id_token: str, db: AsyncSession):
+    try:
+        decoded = firebase_auth.verify_id_token(id_token)
+    except Exception:
+        raise HTTPException(401, "INVALID_GOOGLE_TOKEN")
 
-    email = normalize_email(email)
+    email = decoded.get("email")
 
     if not email:
-        raise HTTPException(400, "EMAIL_REQUIRED")
+        raise HTTPException(400, "NO_EMAIL")
 
-    if not username:
-        raise HTTPException(400, "USERNAME_REQUIRED")
-
-    if not password:
-        raise HTTPException(400, "PASSWORD_REQUIRED")
-
-    if len(password.encode("utf-8")) > 72:
-        raise HTTPException(400, "PASSWORD_TOO_LONG")
-
-    result = await db.execute(select(User).where(User.email == email))
-    if result.scalar_one_or_none():
-        raise HTTPException(400, "EMAIL_ALREADY_EXISTS")
-
-    result = await db.execute(select(User).where(User.username == username))
-    if result.scalar_one_or_none():
-        raise HTTPException(400, "USERNAME_TAKEN")
-
-    user = User(
-        email=email,
-        username=username,
-        password_hash=hash_password(password),
-        is_private=True,
-    )
-
-    db.add(user)
-    await db.flush()
-
-    db.add(UserStats(user_id=user.id))
-
-    await db.commit()
-    await db.refresh(user)
-
-    # SESSION
-    jti = generate_jti()
-
-    access_token = create_access_token(user.id)
-    refresh_token = create_refresh_token(user.id, jti=jti)
-
-    try:
-        safe_set(f"refresh:{jti}", hash_token(refresh_token), ex=REFRESH_TTL)
-    except:
-        pass
-
-    return {
-        "status": "success",
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "user_id": user.id
-    }
-
-
-# =========================
-# LOGIN
-# =========================
-
-async def login_user(email: str, password: str, db: AsyncSession):
-
-    email = normalize_email(email)
-
-    if not email or not password:
-        raise HTTPException(400, "INVALID_CREDENTIALS")
-
-    if len(password.encode("utf-8")) > 72:
-        raise HTTPException(400, "INVALID_CREDENTIALS")
-
+    # 🔍 find user
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
-    if not user or not verify_password(password, user.password_hash):
-        raise HTTPException(400, "INVALID_CREDENTIALS")
+    # 🆕 create user if not exists
+    if not user:
+        username = email.split("@")[0]
+
+        user = User(
+            email=email,
+            username=username,
+            is_private=True,
+            is_active=True,
+        )
+
+        db.add(user)
+        await db.flush()
+
+        db.add(UserStats(user_id=user.id))
+
+        await db.commit()
+        await db.refresh(user)
+
+    # =========================
+    # SESSION
+    # =========================
 
     jti = generate_jti()
 
@@ -147,7 +96,7 @@ async def login_user(email: str, password: str, db: AsyncSession):
         "status": "success",
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "user_id": user.id
+        "user_id": user.id,
     }
 
 
@@ -214,61 +163,4 @@ async def logout_user(refresh_token: str):
     return {
         "status": "success",
         "message": "LOGGED_OUT"
-    }
-
-
-# =========================
-# PASSWORD RESET
-# =========================
-
-async def request_password_reset(email: str, db: AsyncSession):
-
-    email = normalize_email(email)
-
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
-
-    if not user:
-        return {"status": "success"}
-
-    raw_token = str(uuid.uuid4())
-    hashed = hash_token(raw_token)
-
-    user.reset_password_token = hashed
-    user.reset_password_expires = datetime.utcnow() + timedelta(minutes=15)
-
-    await db.commit()
-
-    send_reset_password_email(email, raw_token)
-
-    return {
-        "status": "success",
-        "message": "RESET_EMAIL_SENT"
-    }
-
-
-async def reset_password(token: str, new_password: str, db: AsyncSession):
-
-    hashed = hash_token(token)
-
-    result = await db.execute(
-        select(User).where(User.reset_password_token == hashed)
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(400, "INVALID_TOKEN")
-
-    if user.reset_password_expires < datetime.utcnow():
-        raise HTTPException(400, "TOKEN_EXPIRED")
-
-    user.password_hash = hash_password(new_password)
-    user.reset_password_token = None
-    user.reset_password_expires = None
-
-    await db.commit()
-
-    return {
-        "status": "success",
-        "message": "PASSWORD_RESET_SUCCESS"
     }

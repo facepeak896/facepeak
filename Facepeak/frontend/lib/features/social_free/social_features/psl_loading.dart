@@ -17,12 +17,16 @@ class AnalyzePslLoadingScreen extends StatefulWidget {
   final void Function(String message) onError;
   final String guestToken;
 
+  // 🔥 REAL SNAPSHOT FROM SOCIAL HOME / LOGIN FLOW
+  final Map<String, dynamic> userSnapshot;
+
   const AnalyzePslLoadingScreen({
     super.key,
     required this.imageFile,
     required this.onFinished,
     required this.onError,
     required this.guestToken,
+    required this.userSnapshot,
   });
 
   @override
@@ -31,7 +35,6 @@ class AnalyzePslLoadingScreen extends StatefulWidget {
 
 class _AnalyzeLoadingScreenState extends State<AnalyzePslLoadingScreen>
     with TickerProviderStateMixin {
-
   // ================= CONTROLLERS =================
 
   late final AnimationController _spin;
@@ -151,28 +154,23 @@ class _AnalyzeLoadingScreenState extends State<AnalyzePslLoadingScreen>
 
       final safePsl = {
         "psl_score": (psl["psl_score"] is num)
-            ? psl["psl_score"].toDouble()
+            ? (psl["psl_score"] as num).toDouble()
             : 0.0,
         "tier": psl["tier"] ?? "",
-        "percentile": (psl["percentile"] is num)
-            ? psl["percentile"]
-            : 0,
+        // 🔥 percentile can be "Top 30%" string from backend
+        "percentile": psl["percentile"] ?? "",
         "confidence": (psl["confidence"] is num)
-            ? psl["confidence"].toDouble()
+            ? (psl["confidence"] as num).toDouble()
             : 0.0,
       };
 
+      // 🔥 REAL USER SNAPSHOT + NEW IMAGE OVERRIDE
       final safeUser = {
-        "username": "You",
-        "bio": "",
+        ...widget.userSnapshot,
         "image": widget.imageFile.path,
-        "followers": 0,
-        "following": 0,
-        "matches": 0,
       };
 
       _navigateNext(safeUser, safePsl);
-
     } catch (_) {
       _handleFail();
     }
@@ -241,6 +239,10 @@ class _AnalyzeLoadingScreenState extends State<AnalyzePslLoadingScreen>
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
+    final screenWidth = media.size.width;
+
+    final double imageSize = screenWidth * 0.72;
+    final double glowSize = screenWidth * 0.82;
 
     return Scaffold(
       backgroundColor: bg,
@@ -256,8 +258,7 @@ class _AnalyzeLoadingScreenState extends State<AnalyzePslLoadingScreen>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-
-              // 🔥 IMAGE + DOUBLE GLOW
+              // 🔥 IMAGE + GLOW
               AnimatedBuilder(
                 animation: _pulse,
                 builder: (context, _) {
@@ -266,32 +267,33 @@ class _AnalyzeLoadingScreenState extends State<AnalyzePslLoadingScreen>
                   return Stack(
                     alignment: Alignment.center,
                     children: [
-
                       Container(
-                        width: 240,
-                        height: 240,
+                        width: glowSize,
+                        height: glowSize,
                         decoration: BoxDecoration(
-                          shape: BoxShape.circle,
+                          borderRadius: BorderRadius.circular(42),
                           boxShadow: [
                             BoxShadow(
-                              color: gold.withOpacity(0.25 + glow * 0.25),
-                              blurRadius: 60 + glow * 30,
+                              color: gold.withOpacity(0.22 + glow * 0.20),
+                              blurRadius: 80 + glow * 28,
                             ),
                             BoxShadow(
-                              color: gold.withOpacity(0.15),
-                              blurRadius: 120,
-                            )
+                              color: gold.withOpacity(0.12),
+                              blurRadius: 150,
+                            ),
                           ],
                         ),
                       ),
-
                       ClipRRect(
-                        borderRadius: BorderRadius.circular(28),
-                        child: Image.file(
-                          widget.imageFile,
-                          height: 220,
-                          width: 220,
-                          fit: BoxFit.cover,
+                        borderRadius: BorderRadius.circular(32),
+                        child: Container(
+                          width: imageSize,
+                          height: imageSize,
+                          color: Colors.black,
+                          child: Image.file(
+                            widget.imageFile,
+                            fit: BoxFit.cover,
+                          ),
                         ),
                       ),
                     ],
@@ -299,16 +301,14 @@ class _AnalyzeLoadingScreenState extends State<AnalyzePslLoadingScreen>
                 },
               ),
 
-              const SizedBox(height: 44),
+              const SizedBox(height: 20),
 
-              // 🔥 ADVANCED SPINNER
               SizedBox(
                 width: 90,
                 height: 90,
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-
                     RotationTransition(
                       turns: _spin,
                       child: Container(
@@ -322,7 +322,6 @@ class _AnalyzeLoadingScreenState extends State<AnalyzePslLoadingScreen>
                         ),
                       ),
                     ),
-
                     const CircularProgressIndicator(
                       strokeWidth: 2.5,
                       valueColor: AlwaysStoppedAnimation(gold),
@@ -331,7 +330,7 @@ class _AnalyzeLoadingScreenState extends State<AnalyzePslLoadingScreen>
                 ),
               ),
 
-              const SizedBox(height: 36),
+              const SizedBox(height: 32),
 
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 300),
@@ -346,7 +345,7 @@ class _AnalyzeLoadingScreenState extends State<AnalyzePslLoadingScreen>
                 ),
               ),
 
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
 
               const Text(
                 "Running deep facial analysis",
@@ -356,9 +355,8 @@ class _AnalyzeLoadingScreenState extends State<AnalyzePslLoadingScreen>
                 ),
               ),
 
-              const SizedBox(height: 32),
+              const SizedBox(height: 28),
 
-              // 🔥 PROGRESS
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: AnimatedBuilder(

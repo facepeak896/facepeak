@@ -1,169 +1,196 @@
-from fastapi import APIRouter, Depends, Request, status, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, EmailStr, constr
+from pydantic import BaseModel
+import logging
+import json
+import time
 
+# DB
 from Backend.Social_free.login.database import get_db
+
+# AUTH
 from Backend.Social_free.login.security import get_current_user
+from Backend.Social_free.login.token_service import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+)
+from Backend.Social_free.login.auth_service import generate_jti
+
+# MODELS
 from Backend.Social_free.models.user import User
 
-from Backend.Social_free.login.auth_service import (
-    signup_user,
-    login_user,
-    refresh_user_token,
-    logout_user,
-    request_password_reset,
-    reset_password,
-)
-
+# SERVICES
 from Backend.Social_free.services.user_service import UserService
-from Backend.Social_free.auth_protection import protect_login, protect_signup
 
+# GOOGLE
+from Backend.Social_free.login.google_verify import verify_firebase_token
+
+# RATE LIMIT
+from Backend.Social_free.auth_protection import protect_google_auth
+
+# REDIS (ASYNC)
+from Backend.Social_free.redis import safe_set, safe_getdel, safe_delete
+
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Auth"])
 
 user_service = UserService()
 
 
 # =========================
-# RESPONSE MODEL
+# SCHEMAS
 # =========================
 
-class AuthResponse(BaseModel):
-    status: str
-    message: str | None = None
-    access_token: str | None = None
-    refresh_token: str | None = None  # 🔥 FIX
-    user_id: int | None = None
+class GoogleAuthBody(BaseModel):
+    id_token: str
 
 
-# =========================
-# INPUT SCHEMAS
-# =========================
-
-class SignupSchema(BaseModel):
-    email: EmailStr
-    username: constr(min_length=3, max_length=50)
-    password: constr(min_length=6, max_length=72)
-
-
-class LoginSchema(BaseModel):
-    email: EmailStr
-    password: str
-
-
-class RefreshSchema(BaseModel):
+class RefreshBody(BaseModel):
     refresh_token: str
 
 
-class LogoutSchema(BaseModel):
-    refresh_token: str
-
-
-class ResetRequestSchema(BaseModel):
-    email: EmailStr
-
-
-class ResetConfirmSchema(BaseModel):
-    token: str
-    new_password: constr(min_length=6, max_length=72)
-
-
 # =========================
-# SIGNUP
+# 🔥 GOOGLE AUTH
 # =========================
 
-@router.post("/signup", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-async def signup(data: SignupSchema, request: Request, db: AsyncSession = Depends(get_db)):
-
-    protect_signup(request, data.email)
-
+@router.post("/google")
+async def google_auth(
+    body: GoogleAuthBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
     try:
-        return await signup_user(
-            email=data.email,
-            username=data.username,
-            password=data.password,
+        protect_google_auth(request)
+
+        try:
+            decoded = await verify_firebase_token(body.id_token)
+        except Exception:
+            raise HTTPException(401, "INVALID_GOOGLE_TOKEN")
+
+        email = decoded.get("email")
+        google_id = decoded.get("sub")
+
+        if not email or not google_id:
+            raise HTTPException(400, "INVALID_GOOGLE_PAYLOAD")
+
+        user = await user_service.get_or_create_google_user(
             db=db,
+            email=email,
+            google_id=google_id,
         )
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(400, "SIGNUP_FAILED")
 
+        jti = generate_jti()
 
-# =========================
-# LOGIN
-# =========================
+        access = create_access_token(user.id)
+        refresh = create_refresh_token(user.id, jti=jti)
 
-@router.post("/login", response_model=AuthResponse)
-async def login(data: LoginSchema, request: Request, db: AsyncSession = Depends(get_db)):
-
-    protect_login(request, data.email)
-
-    try:
-        return await login_user(
-            email=data.email,
-            password=data.password,
-            db=db,
+        # 🔥 ASYNC REDIS
+        await safe_set(
+            f"refresh:{jti}",
+            json.dumps({
+                "user_id": user.id,
+                "created_at": int(time.time()),
+            }),
+            ex=60 * 60 * 24 * 7
         )
+
+        return {
+            "status": "success",
+            "access_token": access,
+            "refresh_token": refresh,
+            "user_id": user.id,
+        }
+
     except HTTPException:
         raise
-    except Exception:
-        raise HTTPException(400, "LOGIN_FAILED")
+    except Exception as e:
+        logger.exception(f"[GOOGLE AUTH ERROR] {e}")
+        raise HTTPException(500, "GOOGLE_AUTH_FAILED")
 
 
 # =========================
-# REFRESH
+# 🔥 REFRESH (ATOMIC ASYNC)
 # =========================
 
-@router.post("/refresh", response_model=AuthResponse)
-async def refresh(data: RefreshSchema):
-
+@router.post("/refresh")
+async def refresh(body: RefreshBody):
     try:
-        return await refresh_user_token(data.refresh_token)
+        payload = decode_token(body.refresh_token)
+
+        if payload.get("type") != "refresh":
+            raise HTTPException(401, "INVALID_TOKEN_TYPE")
+
+        user_id = int(payload.get("sub"))
+        jti = payload.get("jti")
+
+        if not jti:
+            raise HTTPException(401, "INVALID_TOKEN")
+
+        # 🔥 ATOMIC ASYNC
+        stored = await safe_getdel(f"refresh:{jti}")
+
+        if not stored:
+            raise HTTPException(401, "SESSION_EXPIRED")
+
+        try:
+            session_data = json.loads(stored)
+        except Exception:
+            raise HTTPException(401, "INVALID_SESSION")
+
+        if session_data.get("user_id") != user_id:
+            raise HTTPException(401, "INVALID_SESSION_OWNER")
+
+        # 🔥 ROTATE
+        new_jti = generate_jti()
+
+        access = create_access_token(user_id)
+        new_refresh = create_refresh_token(user_id, jti=new_jti)
+
+        await safe_set(
+            f"refresh:{new_jti}",
+            json.dumps({
+                "user_id": user_id,
+                "created_at": int(time.time()),
+            }),
+            ex=60 * 60 * 24 * 7
+        )
+
+        return {
+            "status": "success",
+            "access_token": access,
+            "refresh_token": new_refresh,
+        }
+
     except HTTPException:
         raise
-    except Exception:
-        raise HTTPException(401, "REFRESH_FAILED")
+    except Exception as e:
+        logger.exception(f"[REFRESH ERROR] {e}")
+        raise HTTPException(500, "REFRESH_FAILED")
 
 
 # =========================
-# LOGOUT
+# 🔥 LOGOUT
 # =========================
 
-@router.post("/logout", response_model=AuthResponse)
-async def logout(data: LogoutSchema):
-
+@router.post("/logout")
+async def logout(body: RefreshBody):
     try:
-        return await logout_user(data.refresh_token)
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(400, "LOGOUT_FAILED")
+        payload = decode_token(body.refresh_token)
+        jti = payload.get("jti")
+
+        if jti:
+            await safe_delete(f"refresh:{jti}")
+
+        return {"status": "success"}
+
+    except Exception as e:
+        logger.exception(f"[LOGOUT ERROR] {e}")
+        return {"status": "success"}
 
 
 # =========================
-# REQUEST RESET
-# =========================
-
-@router.post("/forgot-password", response_model=AuthResponse)
-async def forgot_password(data: ResetRequestSchema, db: AsyncSession = Depends(get_db)):
-    return await request_password_reset(data.email, db)
-
-
-# =========================
-# RESET PASSWORD
-# =========================
-
-@router.post("/reset-password", response_model=AuthResponse)
-async def reset_password_route(data: ResetConfirmSchema, db: AsyncSession = Depends(get_db)):
-    return await reset_password(
-        token=data.token,
-        new_password=data.new_password,
-        db=db,
-    )
-
-
-# =========================
-# GET CURRENT USER (FIXED)
+# 🔥 GET ME
 # =========================
 
 @router.get("/me")
@@ -171,11 +198,12 @@ async def get_me(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    try:
+        return await user_service.get_full_user_snapshot(
+            db,
+            current_user.id,
+        )
 
-    if not current_user:
-        raise HTTPException(401, "UNAUTHORIZED")
-
-    return await user_service.get_full_user_snapshot(
-        db,
-        current_user.id
-    )
+    except Exception as e:
+        logger.exception(f"[GET ME ERROR] {e}")
+        raise HTTPException(500, "GET_ME_FAILED")

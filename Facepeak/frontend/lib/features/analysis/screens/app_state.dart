@@ -1,9 +1,12 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class AppState {
   static const _keyAccess = 'access_mode';
   static const _keyWelcomeDone = 'welcome_done';
   static const _keyToken = 'auth_token';
+
+  static const _secure = FlutterSecureStorage();
 
   // ======================
   // ACCESS
@@ -30,13 +33,11 @@ class AppState {
   // ======================
 
   static Future<void> setToken(String token) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyToken, token);
+    await _secure.write(key: _keyToken, value: token);
   }
 
   static Future<String?> getToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_keyToken);
+    return await _secure.read(key: _keyToken);
   }
 
   static Future<bool> isLoggedIn() async {
@@ -45,8 +46,7 @@ class AppState {
   }
 
   static Future<void> clearToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_keyToken);
+    await _secure.delete(key: _keyToken);
   }
 
   static Future<void> logout() async {

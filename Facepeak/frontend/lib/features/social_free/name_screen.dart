@@ -28,59 +28,54 @@ class _NameScreenState extends State<NameScreen> {
   String? _error;
 
   Future<void> _submit() async {
-    if (_loading) return;
+  if (_loading) return;
 
-    FocusScope.of(context).unfocus();
+  FocusScope.of(context).unfocus();
 
-    final username = usernameController.text.trim();
+  final username = usernameController.text.trim();
 
-    if (username.isEmpty) {
-      HapticFeedback.lightImpact();
-      setState(() => _error = "Enter username");
-      return;
+  if (username.isEmpty) {
+    HapticFeedback.lightImpact();
+    setState(() => _error = "Enter username");
+    return;
+  }
+
+  setState(() {
+    _loading = true;
+    _error = null;
+  });
+
+  try {
+    HapticFeedback.selectionClick();
+
+    final res = await AuthApi.signup(
+      email: widget.email,
+      username: username,
+      password: widget.password,
+    );
+
+    final token = res["access_token"];
+
+    if (token == null || token.toString().isEmpty) {
+      throw Exception("NO_TOKEN");
     }
 
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    await AppState.setToken(token.toString());
 
-    try {
-      HapticFeedback.selectionClick();
+    HapticFeedback.mediumImpact();
 
-      final res = await AuthApi.signup(
-        email: widget.email,
-        username: username,
-        password: widget.password,
-      );
+    if (!mounted) return;
 
-      final token = res["access_token"];
-
-      if (token == null || token.toString().isEmpty) {
-        throw Exception("NO_TOKEN");
-      }
-
-      await AppState.setToken(token.toString());
-
-      HapticFeedback.mediumImpact();
-
-      if (!mounted) return;
-
-      // 🔥 KLJUČNO
-      widget.onSuccess(token.toString());
-
-      // 🔥 SAMO POP — NIŠTA DRUGO
-      Navigator.pop(context);
-
-    } catch (e) {
-      HapticFeedback.lightImpact();
-      setState(() => _error = "Something went wrong");
-    } finally {
-      if (mounted) {
-        setState(() => _loading = false);
-      }
+    widget.onSuccess(token.toString());
+  } catch (e) {
+    HapticFeedback.lightImpact();
+    setState(() => _error = "Something went wrong");
+  } finally {
+    if (mounted) {
+      setState(() => _loading = false);
     }
   }
+}
 
   @override
   Widget build(BuildContext context) {

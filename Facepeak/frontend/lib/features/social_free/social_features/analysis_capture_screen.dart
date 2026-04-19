@@ -1,16 +1,18 @@
 import 'dart:io';
-import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
-// 🔥 IMAGE FLIP
-import 'package:image/image.dart' as img;
+import 'package:image_picker/image_picker.dart';
 
 // 🔥 PSL LOADING
 import 'psl_loading.dart';
 
 class AnalysisCaptureSimple extends StatefulWidget {
-  const AnalysisCaptureSimple({super.key});
+  final Map<String, dynamic> user; // 🔥 DODAJ
+
+  const AnalysisCaptureSimple({
+    super.key,
+    required this.user, // 🔥 DODAJ
+  });
 
   @override
   State<AnalysisCaptureSimple> createState() =>
@@ -18,189 +20,190 @@ class AnalysisCaptureSimple extends StatefulWidget {
 }
 
 class _AnalysisCaptureSimpleState extends State<AnalysisCaptureSimple> {
+  final ImagePicker _cameraPicker = ImagePicker();
 
-  CameraController? _controller;
   bool _loading = true;
   bool _capturing = false;
+  bool _navigating = false;
+  bool _disposed = false;
+  bool _openedCamera = false;
 
   static const bg = Color(0xFF0B0E14);
 
   @override
   void initState() {
     super.initState();
-    _initCamera();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _openCamera();
+    });
   }
 
-  Future<void> _initCamera() async {
-    try {
-      final cameras = await availableCameras();
+  Future<void> _openCamera() async {
+  if (_disposed || !mounted) return;
+  if (_openedCamera || _capturing || _navigating) return;
 
-      final front = cameras.firstWhere(
-        (c) => c.lensDirection == CameraLensDirection.front,
-        orElse: () => cameras.first,
-      );
+  _openedCamera = true;
+  _capturing = true;
 
-      final controller = CameraController(
-        front,
-        ResolutionPreset.high,
-        enableAudio: false,
-      );
-
-      await controller.initialize();
-
-      _controller = controller;
-
-      if (!mounted) return;
-
-      setState(() => _loading = false);
-
-    } catch (e) {
-      print("Camera error: $e");
-    }
+  if (mounted) {
+    setState(() {
+      _loading = true;
+    });
   }
 
-  // 🔥 FLIP IMAGE (KEY FIX)
-  Future<File> _flipImage(File file) async {
-    try {
-      final bytes = await file.readAsBytes();
-      final image = img.decodeImage(bytes);
-
-      if (image == null) return file;
-
-      final flipped = img.flipHorizontal(image);
-
-      final newFile = File(file.path);
-      await newFile.writeAsBytes(img.encodeJpg(flipped));
-
-      return newFile;
-    } catch (e) {
-      print("Flip error: $e");
-      return file;
-    }
-  }
-
-  Future<void> _capture() async {
-    if (_controller == null || _capturing) return;
-
+  try {
     HapticFeedback.mediumImpact();
 
-    setState(() => _capturing = true);
+    final XFile? file = await _cameraPicker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 92,
+      maxWidth: 2000,
+    );
 
-    try {
-      final file = await _controller!.takePicture();
+    if (_disposed || !mounted) return;
 
-      // 🔥 FIX: FLIP BEFORE SENDING
-      final fixedFile = await _flipImage(File(file.path));
+    if (file == null) {
+      _capturing = false;
+      _loading = false;
+      _openedCamera = false;
 
-      if (!mounted) return;
+      if (mounted) {
+        setState(() {});
+      }
 
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => AnalyzePslLoadingScreen(
-            imageFile: fixedFile,
-            guestToken: "guest",
-            onFinished: (_) {},
-            onError: (_) {},
-          ),
-        ),
-      );
-
-    } catch (e) {
-      print("Capture error: $e");
-      setState(() => _capturing = false);
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      return;
     }
+
+    final imageFile = File(file.path);
+
+    if (!imageFile.existsSync()) {
+      _capturing = false;
+      _loading = false;
+      _openedCamera = false;
+
+      if (mounted) {
+        setState(() {});
+      }
+      return;
+    }
+
+    if (_disposed || !mounted) return;
+    if (_navigating) return;
+
+    _navigating = true;
+
+    await Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AnalyzePslLoadingScreen(
+          imageFile: imageFile,
+          guestToken: "guest",
+          userSnapshot: widget.user, // 🔥 NOVO
+          onFinished: (_) {},
+          onError: (_) {},
+        ),
+      ),
+    );
+  } catch (e) {
+    debugPrint("Camera error: $e");
+
+    if (_disposed || !mounted) return;
+
+    setState(() {
+      _loading = false;
+      _capturing = false;
+      _openedCamera = false;
+      _navigating = false;
+    });
+  }
+}
+
+  Future<void> _retryOpenCamera() async {
+    if (_disposed || _capturing || _navigating) return;
+
+    _openedCamera = false;
+    await _openCamera();
   }
 
   @override
   void dispose() {
-    _controller?.dispose();
+    _disposed = true;
     super.dispose();
+  }
+
+  Widget _buildLoading() {
+    return const Scaffold(
+      backgroundColor: Colors.black,
+      body: Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      ),
+    );
+  }
+
+  Widget _buildError() {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text(
+                "Camera unavailable",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                "Please allow camera access and try again.",
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 20),
+              GestureDetector(
+                onTap: _retryOpenCamera,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Text(
+                    "Retry",
+                    style: TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_loading || _controller == null) {
-      return const Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(
-          child: CircularProgressIndicator(color: Colors.white),
-        ),
-      );
+    if (_loading) {
+      return _buildLoading();
     }
 
-    return Scaffold(
-      backgroundColor: bg,
-      body: Stack(
-        children: [
-
-          // 🔥 CAMERA
-          Positioned.fill(
-            child: CameraPreview(_controller!),
-          ),
-
-          // 🔥 TOP TEXT
-          Positioned(
-            top: 80,
-            left: 20,
-            right: 20,
-            child: Column(
-              children: const [
-                Text(
-                  "Take a clear photo",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                SizedBox(height: 6),
-                Text(
-                  "Face forward • Good lighting",
-                  style: TextStyle(
-                    color: Colors.white70,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // 🔥 CAPTURE BUTTON
-          Positioned(
-            bottom: 50,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: GestureDetector(
-                onTap: _capture,
-                child: Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: Colors.white,
-                      width: 4,
-                    ),
-                  ),
-                  child: Center(
-                    child: _capturing
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : Container(
-                            width: 60,
-                            height: 60,
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white,
-                            ),
-                          ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+    return _buildError();
   }
 }

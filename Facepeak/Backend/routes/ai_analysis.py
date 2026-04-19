@@ -93,6 +93,10 @@ async def analyze_psl(
     x_guest_token: Optional[str] = Header(default=None),
 ):
     try:
+        print("\n🔥 ===== PSL ROUTE HIT =====")
+        print("analysis_id:", analysis_id)
+        print("guest_token:", x_guest_token)
+
         payload = get_analysis_payload(analysis_id)
         if not payload:
             raise HTTPException(status_code=404, detail="ANALYSIS_NOT_FOUND")
@@ -101,12 +105,12 @@ async def analyze_psl(
         if stored_token is not None and stored_token != x_guest_token:
             raise HTTPException(status_code=403, detail="INVALID_GUEST_TOKEN")
 
-        # ✅ FIX
         image_b64 = payload.get("image_bytes")
         if not image_b64:
             raise HTTPException(status_code=422, detail="MISSING_IMAGE")
 
         image_bytes = base64.b64decode(image_b64)
+        print("📸 Image bytes size:", len(image_bytes))
 
         try:
             extractor_output = await run_in_threadpool(
@@ -114,16 +118,19 @@ async def analyze_psl(
                 image_bytes
             )
         except Exception as e:
-            print("EMBEDDING ERROR:", e)
+            print("❌ EMBEDDING ERROR:", e)
             raise HTTPException(status_code=500, detail="EMBEDDING_ERROR")
 
         if extractor_output is None:
+            print("❌ NO FACE DETECTED")
             raise HTTPException(status_code=422, detail="NO_FACE_DETECTED")
 
-        previous_score = payload.get("previous_psl_score")
+        print("✅ Embedding extracted")
 
+        previous_score = payload.get("previous_psl_score")
         if previous_score is not None:
             extractor_output["previous_score"] = previous_score
+            print("📊 Previous score:", previous_score)
 
         try:
             result = await run_in_threadpool(
@@ -131,8 +138,10 @@ async def analyze_psl(
                 extractor_output
             )
         except Exception as e:
-            print("PSL ENGINE CRASH:", e)
+            print("❌ PSL ENGINE CRASH:", e)
             raise HTTPException(status_code=500, detail="PSL_ENGINE_ERROR")
+
+        print("🧠 Raw PSL result:", result)
 
         if not isinstance(result, dict):
             raise HTTPException(status_code=500, detail="INVALID_PSL_RESULT")
@@ -144,7 +153,25 @@ async def analyze_psl(
             )
 
         psl_payload = result.get("psl", {})
+
         score = psl_payload.get("psl_score")
+        tier = psl_payload.get("tier")
+        percentile = psl_payload.get("percentile")
+        confidence = psl_payload.get("confidence")
+
+        stable_score_float = psl_payload.get("stable_score_float")
+        raw_expected = psl_payload.get("raw_expected")
+        bonus_applied = psl_payload.get("bonus_applied")
+
+        print("\n🎯 ===== FINAL PSL =====")
+        print("Score:", score)
+        print("Tier:", tier)
+        print("Percentile:", percentile)
+        print("Confidence:", confidence)
+        print("Stable score float:", stable_score_float)
+        print("Raw expected:", raw_expected)
+        print("Bonus applied:", bonus_applied)
+        print("========================\n")
 
         if score is not None:
             save_analysis_part(
@@ -158,17 +185,18 @@ async def analyze_psl(
             "status": "success",
             "psl": {
                 "psl_score": score,
-                "tier": psl_payload.get("tier"),
-                "percentile": psl_payload.get("percentile"),
-                "confidence": psl_payload.get("confidence"),
+                "tier": tier,
+                "percentile": percentile,
+                "confidence": confidence,
+                "stable_score_float": stable_score_float,
+                "raw_expected": raw_expected,
+                "bonus_applied": bonus_applied,
             },
         }
 
     except Exception as e:
-        print("PSL ENDPOINT ERROR:", e)
+        print("❌ PSL ENDPOINT ERROR:", e)
         raise
-
-
 # ============================================================
 # 🔥 FREE ROUTE
 # ============================================================

@@ -93,7 +93,7 @@ class PSLService:
         psl_score, tier, percentile, confidence = row
 
         data = {
-            "score": psl_score,
+            "psl_score": psl_score,
             "tier": tier,
             "percentile": percentile,
             "confidence": confidence,

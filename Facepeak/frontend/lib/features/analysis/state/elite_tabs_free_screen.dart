@@ -2,15 +2,20 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-class BottomTabBar extends StatelessWidget {
+class BottomTabBarElite extends StatelessWidget {
   final int currentIndex;
   final Function(int) onTabChange;
 
-  const BottomTabBar({
+  const BottomTabBarElite({
     super.key,
     required this.currentIndex,
     required this.onTabChange,
   });
+
+  static const Color _bg = Color(0xFF05070D);
+  static const Color _goldLight = Color(0xFFF8EFCB);
+  static const Color _gold = Color(0xFFE8C76A);
+  static const Color _goldDeep = Color(0xFFC3922E);
 
   void _go(int index) {
     if (index == currentIndex) {
@@ -22,7 +27,22 @@ class BottomTabBar extends StatelessWidget {
     onTabChange(index);
   }
 
-  Widget _tab(IconData icon, int index) {
+  IconData _iconFor(int index) {
+    switch (index) {
+      case 0:
+        return Icons.home_outlined;
+      case 1:
+        return Icons.chat_bubble_outline_rounded;
+      case 2:
+        return Icons.favorite_border_rounded;
+      case 3:
+        return Icons.person_outline_rounded;
+      default:
+        return Icons.circle_outlined;
+    }
+  }
+
+  Widget _tab(int index) {
     final active = index == currentIndex;
 
     return Expanded(
@@ -31,21 +51,54 @@ class BottomTabBar extends StatelessWidget {
         onTap: () => _go(index),
         onTapDown: (_) => HapticFeedback.lightImpact(),
         child: TweenAnimationBuilder<double>(
-          tween: Tween(begin: 1, end: active ? 1.12 : 1),
-          duration: const Duration(milliseconds: 160),
+          tween: Tween(begin: 1, end: active ? 1.08 : 1),
+          duration: const Duration(milliseconds: 180),
           curve: Curves.easeOutCubic,
           builder: (context, scale, child) {
             return Transform.scale(scale: scale, child: child);
           },
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
             padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Icon(
-              icon,
-              size: 25,
-              color: active
-                  ? const Color(0xFFE8C76A) // 💎 refined gold
-                  : Colors.white30,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                if (active)
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          _gold.withOpacity(0.16),
+                          _goldDeep.withOpacity(0.07),
+                          Colors.transparent,
+                        ],
+                      ),
+                    ),
+                  ),
+                Icon(
+                  _iconFor(index),
+                  size: active ? 30 : 27,
+                  color: active
+                      ? _goldLight
+                      : Colors.white.withOpacity(0.38),
+                  shadows: active
+                      ? [
+                          Shadow(
+                            color: _goldDeep.withOpacity(0.45),
+                            blurRadius: 10,
+                          ),
+                          Shadow(
+                            color: _gold.withOpacity(0.26),
+                            blurRadius: 16,
+                          ),
+                        ]
+                      : null,
+                ),
+              ],
             ),
           ),
         ),
@@ -55,112 +108,123 @@ class BottomTabBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
+    final media = MediaQuery.of(context);
+    final width = media.size.width;
+    final bottomInset = media.padding.bottom;
     final tabWidth = width / 4;
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(30),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 35, sigmaY: 35),
-          child: Container(
-            height: 74,
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(30),
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        systemNavigationBarColor: _bg,
+        systemNavigationBarDividerColor: Colors.transparent,
+        systemNavigationBarIconBrightness: Brightness.light,
+      ),
+    );
 
-              // 🔥 GLASS BASE
-              color: const Color(0xFF050505).withOpacity(0.88),
-
-              // 🔥 FRAME (KEY DIFFERENCE)
-              border: Border.all(
-                color: Colors.white.withOpacity(0.06),
-                width: 1,
-              ),
-
-              boxShadow: [
-
-                // 🔥 DEPTH
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.95),
-                  blurRadius: 50,
-                  offset: const Offset(0, 25),
-                ),
-
-                // 🔥 OUTER GOLD AMBIENT (VERY SUBTLE)
-                BoxShadow(
-                  color: const Color(0xFFE8C76A).withOpacity(0.06),
-                  blurRadius: 100,
-                  spreadRadius: 1,
-                ),
-              ],
+    return SizedBox(
+      width: double.infinity,
+      height: 74 + bottomInset, // background layer + system nav area
+      child: Stack(
+        children: [
+          // FULL-WIDTH BACKGROUND THAT MERGES WITH ANDROID NAV BAR
+          Positioned.fill(
+            child: Container(
+              color: _bg,
             ),
-            child: Stack(
-              children: [
+          ),
 
-                /// 🔥 TOP INNER LIGHT LINE (premium glass effect)
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    height: 1.2,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.transparent,
-                          Colors.white.withOpacity(0.25),
-                          Colors.transparent,
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-
-                /// 🔥 LIQUID INDICATOR (ULTRA CLEAN)
-                AnimatedPositioned(
-                  duration: const Duration(milliseconds: 260),
-                  curve: Curves.easeOutCubic,
-                  bottom: 10,
-                  left: tabWidth * currentIndex + tabWidth / 2 - 16,
-                  child: Container(
-                    width: 32,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(10),
-                      gradient: const LinearGradient(
-                        colors: [
-                          Color(0xFFE8C76A),
-                          Color(0xFFFFF2B0),
-                        ],
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFFE8C76A).withOpacity(0.7),
-                          blurRadius: 16,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                /// 🔥 TABS
-                SafeArea(
-                  top: false,
-                  child: Row(
-                    children: [
-                      _tab(Icons.home_rounded, 0),
-                      _tab(Icons.chat_bubble_rounded, 1),
-                      _tab(Icons.favorite_rounded, 2),
-                      _tab(Icons.person_rounded, 3),
+          // TOP SEPARATOR / GLASS FEEL
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              child: Container(
+                height: 1.0,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.transparent,
+                      Colors.white.withOpacity(0.10),
+                      Colors.transparent,
                     ],
                   ),
                 ),
-              ],
+              ),
             ),
           ),
-        ),
+
+          // GOLD AMBIENT STRIP
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              child: Container(
+                height: 16,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      _gold.withOpacity(0.07),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // ACTUAL TAB CONTENT, SITS ABOVE SYSTEM NAV BUTTONS
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: bottomInset > 0 ? bottomInset : 10,
+            child: SizedBox(
+              height: 74,
+              child: Stack(
+                children: [
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeOutCubic,
+                    bottom: 8,
+                    left: (tabWidth * currentIndex) + (tabWidth / 2) - 15,
+                    child: Container(
+                      width: 30,
+                      height: 4.5,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(999),
+                        gradient: const LinearGradient(
+                          colors: [
+                            _goldDeep,
+                            _gold,
+                            _goldLight,
+                          ],
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _gold.withOpacity(0.68),
+                            blurRadius: 14,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  Row(
+                    children: [
+                      _tab(0),
+                      _tab(1),
+                      _tab(2),
+                      _tab(3),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

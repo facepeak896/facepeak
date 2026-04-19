@@ -1,4 +1,4 @@
-// 🔥 SOCIAL HOME — FINAL CLEAN (LUXURY MINIMAL COLORS)
+// 🔥 SOCIAL HOME — LOCKED FREE STATE (PRE-PSL)
 
 import 'dart:io';
 import 'dart:math' as math;
@@ -13,13 +13,14 @@ import 'create_post_entry_screen.dart';
 import 'profile_views_screen.dart';
 import 'settings_screen.dart';
 
-
 class SocialHomeFreeScreen extends StatefulWidget {
   final Map<String, dynamic> user;
+  final Future<void> Function()? onRequireAuth;
 
   const SocialHomeFreeScreen({
     super.key,
     required this.user,
+    this.onRequireAuth,
   });
 
   @override
@@ -28,22 +29,18 @@ class SocialHomeFreeScreen extends StatefulWidget {
 
 class _SocialHomeFreeScreenState extends State<SocialHomeFreeScreen>
     with TickerProviderStateMixin {
-
   late final AnimationController _pulse;
   late final AnimationController _shake;
 
   Map<String, dynamic> _user = {};
   int _followers = 0;
 
-  // 🎨 COLORS
   static const bg = Color(0xFF0B0E14);
 
-  // GOLD (CTA + glow)
   static const gold1 = Color(0xFFE7C26A);
   static const gold2 = Color(0xFFFFD37A);
   static const gold3 = Color(0xFFFFE3A2);
 
-  // CLEAN COLORS
   static const editColor = Color(0xFF111827);
   static const analyticsColor = Color(0xFF1F2937);
   static const matchesColor = Color(0xFF7C3AED);
@@ -76,6 +73,7 @@ class _SocialHomeFreeScreenState extends State<SocialHomeFreeScreen>
   }
 
   int _readInt(dynamic v) => v is int ? v : int.tryParse("$v") ?? 0;
+  String _readString(dynamic v) => v?.toString() ?? "";
 
   void _triggerShake() {
     if (_shake.isAnimating) return;
@@ -87,60 +85,76 @@ class _SocialHomeFreeScreenState extends State<SocialHomeFreeScreen>
     return math.sin(t * math.pi * 6) * 6 * (1 - t);
   }
 
+  bool get _hasImage {
+    final image = _readString(_user["image"]).trim();
+    return image.isNotEmpty;
+  }
+
+  String get _username {
+    final username = _readString(_user["username"]).trim();
+    return username.isEmpty ? "User" : username;
+  }
+
+  String get _bio {
+    final bio = _readString(_user["bio"]).trim();
+    return bio.isEmpty ? "No bio yet" : bio;
+  }
+
+  void _lockedTapFeedback() {
+    _triggerShake();
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF151922),
+        content: const Text(
+          "Unlock after your PSL score",
+          style: TextStyle(color: Colors.white),
+        ),
+        duration: const Duration(milliseconds: 1200),
+      ),
+    );
+  }
+
   @override
-Widget build(BuildContext context) {
-  return Scaffold(
-    backgroundColor: bg,
-    body: SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
-        child: Column(
-          children: [
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).padding.bottom;
 
-            _topBar(),
-
-            const SizedBox(height: 18),
-
-            _avatar(),
-
-            const SizedBox(height: 14),
-
-            _username(),
-
-            const SizedBox(height: 6),
-
-            _bio(),
-
-            const SizedBox(height: 16),
-
-            _stats(),
-
-            const SizedBox(height: 14),
-
-            _actions(),
-
-            const SizedBox(height: 16),
-
-            _infoBox(),
-
-            const Spacer(),
-
-            _ctaUpload(),
-
-          ],
+    return Scaffold(
+      backgroundColor: bg,
+      body: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(20, 10, 20, bottomInset + 18),
+          child: Column(
+            children: [
+              _topBar(),
+              const SizedBox(height: 10),
+              _avatar(),
+              const SizedBox(height: 10),
+              _usernameWidget(),
+              const SizedBox(height: 4),
+              _bioWidget(),
+              const SizedBox(height: 12),
+              _lockedStats(),
+              const SizedBox(height: 12),
+              _lockedActions(),
+              const SizedBox(height: 12),
+              _infoBox(),
+              const SizedBox(height: 10),
+              _ctaUpload(),
+            ],
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   // ================= TOP =================
 
   Widget _topBar() {
   return Row(
     children: [
-
-      // 🔙 BACK
       GestureDetector(
         onTap: () => Navigator.pop(context),
         child: Container(
@@ -157,66 +171,75 @@ Widget build(BuildContext context) {
           ),
         ),
       ),
-
       const Spacer(),
-
-      // 👁 PROFILE VIEWS
-      _topIcon(
+      _topIconLocked(
         Icons.remove_red_eye_outlined,
-        () => _push(const ProfileViewsScreen()),
+        color: Colors.white,
       ),
-
       const SizedBox(width: 10),
-
-      // 🔍 SEARCH
-      _topIcon(
+      _topIconLocked(
         Icons.search_rounded,
-        () => _push(const SearchScreen()),
+        color: Colors.white,
       ),
-
       const SizedBox(width: 10),
-
-      // ❤️ MATCHES
-      _topIcon(
+      _topIconLocked(
         Icons.favorite,
-        () => _push(const MatchesScreen()),
         color: purple,
       ),
-
       const SizedBox(width: 10),
-
-      // ☰ SETTINGS
-      _topIcon(
+      _topIconLocked(
         Icons.menu,
-        () => _push(const SettingsScreen()),
+        color: Colors.white,
       ),
     ],
   );
 }
-Widget _topIcon(IconData icon, VoidCallback onTap, {Color color = Colors.white}) {
-  return GestureDetector(
-    onTap: onTap,
-    child: Container(
-      width: 38,
-      height: 38,
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(12),
+
+  Widget _topIcon(IconData icon, VoidCallback onTap,
+      {Color color = Colors.white}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(
+          icon,
+          size: 20,
+          color: color,
+        ),
       ),
-      child: Icon(
-        icon,
-        size: 20,
-        color: color,
+    );
+  }
+
+  Widget _topIconLocked(IconData icon, {Color color = Colors.white}) {
+    return GestureDetector(
+      onTap: _lockedTapFeedback,
+      child: Opacity(
+        opacity: 0.42,
+        child: Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.06),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(
+            icon,
+            size: 20,
+            color: color,
+          ),
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   // ================= AVATAR =================
 
   Widget _avatar() {
-    final hasImage = _user["image"] != null;
-
     return AnimatedBuilder(
       animation: Listenable.merge([_pulse, _shake]),
       builder: (context, _) {
@@ -226,34 +249,29 @@ Widget _topIcon(IconData icon, VoidCallback onTap, {Color color = Colors.white})
         return Transform.translate(
           offset: Offset(offsetX, 0),
           child: GestureDetector(
-            onTap: () {
-              if (!hasImage) _triggerShake();
-            },
+            onTap: _lockedTapFeedback,
             child: Stack(
               alignment: Alignment.center,
               children: [
-
                 Container(
-                  width: 210,
-                  height: 210,
+                  width: 188,
+                  height: 188,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: gold2.withOpacity(0.15 + glow * 0.15),
-                        blurRadius: 40 + glow * 15,
-                      )
+                        color: gold2.withOpacity(0.14 + glow * 0.14),
+                        blurRadius: 34 + glow * 14,
+                      ),
                     ],
                   ),
                 ),
-
                 ClipOval(
                   child: Stack(
                     children: [
-
                       Container(
-                        width: 210,
-                        height: 210,
+                        width: 188,
+                        height: 188,
                         decoration: const BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
@@ -262,7 +280,7 @@ Widget _topIcon(IconData icon, VoidCallback onTap, {Color color = Colors.white})
                             ],
                           ),
                         ),
-                        child: hasImage
+                        child: _hasImage
                             ? Image.file(
                                 File(_user["image"]),
                                 fit: BoxFit.cover,
@@ -270,25 +288,23 @@ Widget _topIcon(IconData icon, VoidCallback onTap, {Color color = Colors.white})
                             : const Center(
                                 child: Icon(
                                   Icons.person_rounded,
-                                  size: 90,
+                                  size: 82,
                                   color: Colors.white38,
                                 ),
                               ),
                       ),
-
-                      if (!hasImage)
-                        Positioned.fill(
-                          child: Container(
-                            color: Colors.black.withOpacity(0.55),
-                            child: const Center(
-                              child: Icon(
-                                Icons.lock_rounded,
-                                size: 42,
-                                color: Colors.white70,
-                              ),
+                      Positioned.fill(
+                        child: Container(
+                          color: Colors.black.withOpacity(0.52),
+                          child: const Center(
+                            child: Icon(
+                              Icons.lock_rounded,
+                              size: 40,
+                              color: Colors.white70,
                             ),
                           ),
                         ),
+                      ),
                     ],
                   ),
                 ),
@@ -302,34 +318,34 @@ Widget _topIcon(IconData icon, VoidCallback onTap, {Color color = Colors.white})
 
   // ================= USER =================
 
-  Widget _username() {
+  Widget _usernameWidget() {
     return Text(
-      _user["username"] ?? "User",
+      _username,
       style: const TextStyle(
-        fontSize: 34,
+        fontSize: 32,
         fontWeight: FontWeight.w900,
         color: Colors.white,
+        height: 1.0,
       ),
     );
   }
 
-  Widget _bio() {
+  Widget _bioWidget() {
     return Text(
-      (_user["bio"] != null && _user["bio"].toString().isNotEmpty)
-          ? _user["bio"]
-          : "No bio yet",
+      _bio,
       style: const TextStyle(
-        fontSize: 15,
+        fontSize: 14,
         color: Colors.white70,
+        height: 1.0,
       ),
     );
   }
 
-  // ================= STATS =================
+  // ================= LOCKED STATS =================
 
-  Widget _stats() {
+  Widget _lockedStats() {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16),
+      padding: const EdgeInsets.symmetric(vertical: 12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: purple.withOpacity(0.6)),
@@ -337,84 +353,71 @@ Widget _topIcon(IconData icon, VoidCallback onTap, {Color color = Colors.white})
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _stat(_readInt(_user["following"]), "Following"),
-          _stat(_followers, "Followers"),
-          _stat(_readInt(_user["matches"]), "Matches"),
+        children: const [
+          _LockedStat(label: "Following"),
+          _LockedStat(label: "Followers"),
+          _LockedStat(label: "Matches"),
         ],
       ),
     );
   }
 
-  Widget _stat(int v, String l) {
-    return Column(
-      children: [
-        Text(
-          "$v",
-          style: const TextStyle(
-            fontSize: 26,
-            fontWeight: FontWeight.w900,
-            color: Colors.white,
-          ),
-        ),
-        Text(
-          l,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Colors.white54,
-          ),
-        ),
-      ],
-    );
-  }
-
   // ================= ACTIONS =================
 
-  Widget _actions() {
+  Widget _lockedActions() {
     return Row(
       children: [
-        Expanded(child: _btn("Edit", Icons.edit, _openEdit, editColor)),
+        Expanded(
+          child: _btnLocked("Edit", Icons.edit, editColor),
+        ),
         const SizedBox(width: 10),
-        Expanded(child: _btn("Analytics", Icons.bar_chart, () => _push(const AnalyticsScreen()), analyticsColor)),
+        Expanded(
+          child: _btnLocked("Analytics", Icons.bar_chart, analyticsColor),
+        ),
         const SizedBox(width: 10),
-        Expanded(child: _btn("Matches", Icons.favorite, () => _push(const MatchesScreen()), matchesColor)),
+        Expanded(
+          child: _btnLocked("Matches", Icons.favorite, matchesColor),
+        ),
       ],
     );
   }
 
-  Widget _btn(String t, IconData i, VoidCallback f, Color color) {
+  Widget _btnLocked(String t, IconData i, Color color) {
     return AnimatedBuilder(
       animation: _pulse,
       builder: (context, _) {
         final glow = _pulse.value;
 
         return GestureDetector(
-          onTap: f,
-          child: Container(
-            height: 52,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: color.withOpacity(0.2 + glow * 0.2),
-                  blurRadius: 20 + glow * 10,
-                )
-              ],
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(i, color: Colors.white),
-                const SizedBox(width: 6),
-                Text(
-                  t,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    color: Colors.white,
+          onTap: _lockedTapFeedback,
+          child: Opacity(
+            opacity: 0.82,
+            child: Container(
+              height: 46,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withOpacity(0.16 + glow * 0.14),
+                    blurRadius: 16 + glow * 8,
                   ),
-                ),
-              ],
+                ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(i, color: Colors.white),
+                  const SizedBox(width: 6),
+                  Text(
+                    t,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -431,26 +434,38 @@ Widget _topIcon(IconData icon, VoidCallback onTap, {Color color = Colors.white})
         final glow = _pulse.value;
 
         return Container(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: gold1.withOpacity(0.7)),
+            border: Border.all(color: gold1.withOpacity(0.72)),
             color: Colors.black.withOpacity(0.25),
             boxShadow: [
               BoxShadow(
-                color: gold1.withOpacity(0.1 + glow * 0.1),
-                blurRadius: 20,
-              )
+                color: gold1.withOpacity(0.08 + glow * 0.08),
+                blurRadius: 18,
+              ),
             ],
           ),
           child: const Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text("⭐ Upload → unlock score", style: TextStyle(color: Colors.white)),
+              _InfoRow(
+                icon: Icons.lock_outline_rounded,
+                text: "Your profile is hidden",
+                color: Colors.white,
+              ),
               SizedBox(height: 6),
-              Text("📈 Higher score = more reach", style: TextStyle(color: Colors.white70)),
+              _InfoRow(
+                icon: Icons.remove_red_eye_outlined,
+                text: "Become visible to others",
+                color: Colors.white70,
+              ),
               SizedBox(height: 6),
-              Text("⚡ Boost matches instantly", style: TextStyle(color: Colors.white70)),
+              _InfoRow(
+                icon: Icons.favorite,
+                text: "Unlock search & matches",
+                color: Colors.white70,
+              ),
             ],
           ),
         );
@@ -466,32 +481,51 @@ Widget _topIcon(IconData icon, VoidCallback onTap, {Color color = Colors.white})
       builder: (context, _) {
         final glow = _pulse.value;
 
-        return GestureDetector(
-          onTap: () => _push(const CreatePostScreen()),
-          child: Container(
-            width: double.infinity,
-            height: 58,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              gradient: const LinearGradient(colors: [gold2, gold3]),
-              boxShadow: [
-                BoxShadow(
-                  color: gold2.withOpacity(0.45 + glow * 0.35),
-                  blurRadius: 30 + glow * 15,
-                )
-              ],
-            ),
-            child: const Center(
-              child: Text(
-                "GET YOUR PSL SCORE",
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 15,
-                  color: Colors.black,
+        return Column(
+          children: [
+            GestureDetector(
+              onTap: () => _push(
+                CreatePostScreen(
+                  user: _user,
+                ),
+              ),
+              child: Container(
+                width: double.infinity,
+                height: 60,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  gradient: const LinearGradient(colors: [gold2, gold3]),
+                  boxShadow: [
+                    BoxShadow(
+                      color: gold2.withOpacity(0.44 + glow * 0.32),
+                      blurRadius: 28 + glow * 14,
+                    ),
+                  ],
+                ),
+                child: const Center(
+                  child: Text(
+                    "UNLOCK YOUR PROFILE IN 10 SECONDS",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13.5,
+                      color: Colors.black,
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
+            const SizedBox(height: 7),
+            const Text(
+              "Required to use search, matches & visibility",
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.white60,
+              ),
+            ),
+          ],
         );
       },
     );
@@ -499,19 +533,91 @@ Widget _topIcon(IconData icon, VoidCallback onTap, {Color color = Colors.white})
 
   // ================= NAV =================
 
-  
   Future<void> _push(Widget s) async {
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => s));
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => s),
+    );
+
+    if (result != null && result is Map<String, dynamic>) {
+      setState(() {
+        _user = {
+          ..._user,
+          ...result,
+        };
+
+        _followers = _readInt(_user["followers"]);
+      });
+    }
   }
 
   Future<void> _openEdit() async {
     final updated = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => EditProfileScreen(user: _user),
-    ));
+      MaterialPageRoute(builder: (_) => EditProfileScreen(user: _user)),
+    );
 
     if (updated != null) {
       setState(() => _user = updated);
     }
+  }
+}
+
+class _LockedStat extends StatelessWidget {
+  final String label;
+
+  const _LockedStat({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        const Icon(
+          Icons.lock_outline_rounded,
+          size: 22,
+          color: Colors.white70,
+        ),
+        const SizedBox(height: 6),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            color: Colors.white54,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final Color color;
+
+  const _InfoRow({
+    required this.icon,
+    required this.text,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              fontSize: 13.5,
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }

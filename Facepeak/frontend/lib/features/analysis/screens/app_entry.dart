@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 import 'app_state.dart';
 import 'welcome_flow.dart';
 import 'access_choice_screen.dart';
-import 'home_free_screen.dart';
-import 'home_premium_screen.dart';
+import 'package:frontend/features/analysis/state/main_screen.dart';
 
 class AppEntry extends StatelessWidget {
   const AppEntry({super.key});
@@ -29,16 +28,15 @@ class AppEntry extends StatelessWidget {
           case _EntryState.accessChoice:
             return AccessChoiceScreen(
               onFinish: () {
-                // samo trigger rebuild
                 (context as Element).markNeedsBuild();
               },
             );
 
           case _EntryState.homeFree:
-            return const HomeFreeScreen();
+            return const MainScreen(isPremium: false);
 
           case _EntryState.homePremium:
-            return const HomePremiumScreen();
+            return const MainScreen(isPremium: true);
         }
       },
     );

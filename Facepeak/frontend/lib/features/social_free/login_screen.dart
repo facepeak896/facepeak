@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:frontend/features/analysis/screens/home_free_screen.dart';
 import 'sign_in_screen.dart';
 import 'name_screen.dart';
+import 'package:frontend/features/social_free/social_features/google_auth_service.dart';
 class AuthScreen extends StatefulWidget {
   final Function(String token) onSuccess;
 
@@ -214,58 +215,10 @@ Widget build(BuildContext context) {
                           decoration: BoxDecoration(
                             color: Colors.white.withOpacity(0.78),
                             borderRadius: BorderRadius.circular(30),
-                            border: Border.all(
-                              color: Colors.black.withOpacity(0.05),
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.08),
-                                blurRadius: 40,
-                                offset: const Offset(0, 18),
-                              ),
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.03),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
                           ),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Container(
-                                width: 52,
-                                height: 5,
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.10),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                              ),
-                              const SizedBox(height: 20),
-
-                              const Text(
-                                "Continue",
-                                style: TextStyle(
-                                  fontSize: 34,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: -1.1,
-                                  color: Colors.black,
-                                  height: 1,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-
-                              Text(
-                                "Log in or create your account instantly",
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  height: 1.35,
-                                  color: Colors.black.withOpacity(0.55),
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-
                               const SizedBox(height: 26),
 
                               _AppleInput(
@@ -275,7 +228,6 @@ Widget build(BuildContext context) {
                                 icon: Icons.alternate_email_rounded,
                                 keyboardType: TextInputType.emailAddress,
                                 textInputAction: TextInputAction.next,
-                                autofillHints: const [AutofillHints.email],
                                 onSubmitted: (_) {
                                   passwordFocus.requestFocus();
                                 },
@@ -290,26 +242,10 @@ Widget build(BuildContext context) {
                                 icon: Icons.lock_outline_rounded,
                                 obscureText: _obscure,
                                 textInputAction: TextInputAction.done,
-                                autofillHints: const [AutofillHints.password],
-                                suffix: GestureDetector(
-                                  onTap: () {
-                                    HapticFeedback.selectionClick();
-                                    setState(() {
-                                      _obscure = !_obscure;
-                                    });
-                                  },
-                                  child: Icon(
-                                    _obscure
-                                        ? Icons.visibility_off_rounded
-                                        : Icons.visibility_rounded,
-                                    size: 20,
-                                    color: Colors.black.withOpacity(0.42),
-                                  ),
-                                ),
-                                onSubmitted: (_) => _submit(),
+                                onSubmitted: (_) {},
                               ),
 
-                              const SizedBox(height: 14),
+                              const SizedBox(height: 10),
 
                               AnimatedSwitcher(
                                 duration: const Duration(milliseconds: 220),
@@ -319,7 +255,6 @@ Widget build(BuildContext context) {
                                         height: 18,
                                         child: Text(
                                           _error!,
-                                          key: ValueKey(_error),
                                           style: const TextStyle(
                                             color: Color(0xFFD93025),
                                             fontSize: 13,
@@ -331,9 +266,49 @@ Widget build(BuildContext context) {
 
                               const SizedBox(height: 10),
 
+                              // 🔥🔥🔥 OVDJE JE PROMJENA
                               _ContinueButton(
                                 loading: _loading,
-                                onTap: _loading ? null : _submit,
+                                onTap: _loading
+                                    ? null
+                                    : () async {
+                                        setState(() {
+                                          _loading = true;
+                                          _error = null;
+                                        });
+
+                                        try {
+                                          final userCredential =
+                                              await GoogleAuthService
+                                                  .signInWithGoogle();
+
+                                          if (userCredential == null) {
+                                            if (!mounted) return;
+                                            setState(() {
+                                              _loading = false;
+                                            });
+                                            return;
+                                          }
+
+                                          final email =
+                                              userCredential.user?.email;
+                                          print(
+                                              "🔥 GOOGLE LOGIN OK: $email");
+
+                                          if (!mounted) return;
+
+                                          setState(() {
+                                            _loading = false;
+                                          });
+                                        } catch (e) {
+                                          if (!mounted) return;
+                                          setState(() {
+                                            _loading = false;
+                                            _error =
+                                                "Google sign in failed";
+                                          });
+                                        }
+                                      },
                               ),
 
                               const SizedBox(height: 14),
@@ -343,84 +318,15 @@ Widget build(BuildContext context) {
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontSize: 12.5,
-                                  height: 1.35,
-                                  color: Colors.black.withOpacity(0.42),
-                                  fontWeight: FontWeight.w500,
+                                  color:
+                                      Colors.black.withOpacity(0.42),
                                 ),
                               ),
-
-                              const SizedBox(height: 8),
                             ],
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-
-        // ❌ CLOSE
-        SafeArea(
-          child: Align(
-            alignment: Alignment.topLeft,
-            child: Padding(
-              padding: const EdgeInsets.only(left: 10, top: 6),
-              child: IconButton(
-                onPressed: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (_) => const HomeFreeScreen()),
-                    (_) => false,
-                  );
-                },
-                icon: Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.72),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: Colors.black.withOpacity(0.05),
-                    ),
-                  ),
-                  child: const Icon(
-                    Icons.close_rounded,
-                    size: 20,
-                    color: Colors.black,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-
-        // 🔥 SIGN IN FIX
-        SafeArea(
-          child: Align(
-            alignment: Alignment.topRight,
-            child: Padding(
-              padding: const EdgeInsets.only(right: 16, top: 14),
-              child: GestureDetector(
-                onTap: () {
-                  HapticFeedback.selectionClick();
-
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => SignInScreen(
-                        onSuccess: widget.onSuccess, // 🔥 FIX
-                      ),
-                    ),
-                  );
-                },
-                child: Text(
-                  "Sign in",
-                  style: TextStyle(
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black.withOpacity(0.75),
                   ),
                 ),
               ),
