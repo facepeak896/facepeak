@@ -15,7 +15,7 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship, backref
 import uuid
 
-from database import Base
+from Backend.Social_free.login.database import Base
 
 
 class RefreshToken(Base):

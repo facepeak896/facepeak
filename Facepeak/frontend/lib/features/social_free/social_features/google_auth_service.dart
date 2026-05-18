@@ -11,6 +11,7 @@ class GoogleAuthService {
   static Future<UserCredential?> signInWithGoogle() async {
     try {
       final GoogleSignInAccount? googleUser =
+          await _googleSignIn.signInSilently() ??
           await _googleSignIn.signIn();
 
       if (googleUser == null) return null;

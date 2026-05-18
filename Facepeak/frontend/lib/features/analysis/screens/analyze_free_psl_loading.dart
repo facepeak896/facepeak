@@ -1,44 +1,18 @@
+// 🔥 ANALYZE LOADING (FREE PSL) — CLEAN CINEMATIC UI
+// Backend is source of truth. Loading screen only calls backend + saves returned state.
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:frontend/features/analysis/screens/analysis_block.dart'
-    as analysis;
+import 'package:frontend/features/analysis/screens/analysis_block.dart' as analysis;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
-
-import 'psl_free_result_screen.dart';
-
-enum AnalysisErrorType {
-  imageMissing,
-  imageEmpty,
-  imageTooLarge,
-  invalidResponseType,
-  emptyResponse,
-  invalidStatus,
-  invalidPslPayload,
-  missingOrInvalidScore,
-  analysisFailed,
-  faceNotDetected,
-  invalidContext,
-  routeNotCurrent,
-  navigationFailed,
-  unexpected,
-}
-
-class AnalysisException implements Exception {
-  final AnalysisErrorType type;
-  final String? detail;
-
-  const AnalysisException(this.type, {this.detail});
-
-  @override
-  String toString() => 'AnalysisException(type: $type, detail: $detail)';
-}
-
+import 'package:frontend/features/analysis/screens/psl_result_home_screen.dart';
+import 'package:frontend/features/analysis/screens/app_state.dart';
 class AnalyzeLoadingScreen extends StatefulWidget {
   final File imageFile;
   final void Function(Map<String, dynamic> psl) onFinished;
@@ -56,57 +30,57 @@ class AnalyzeLoadingScreen extends StatefulWidget {
 }
 
 class _AnalyzeLoadingScreenState extends State<AnalyzeLoadingScreen>
-    with TickerProviderStateMixin, WidgetsBindingObserver {
-  bool _analysisRunning = false;
-  bool _navigated = false;
-  int _analysisRequestId = 0;
-
-  late final AnimationController _spin;
+    with TickerProviderStateMixin {
+  late final AnimationController _pulse;
   late final AnimationController _fade;
+  late final AnimationController _progressCtrl;
+  late final AnimationController _scan;
+  late final AnimationController _orbit;
   late final Animation<double> _opacity;
 
-  Timer? _stepTimer;
-  int _step = 0;
+  bool _done = false;
 
-  AppLifecycleState? _lastLifecycleState;
+  static const Color bg = Color(0xFF02040A);
+  static const Color bg2 = Color(0xFF070B16);
 
-  static const Color bgTop = Color(0xFF12121A);
-  static const Color bgMid = Color(0xFF0E0E14);
-  static const Color bgBottom = Color(0xFF0B0B0F);
-  static const Color gold = Color(0xFFF5C518);
+  static const Color gold = Color(0xFFFFC34D);
+  static const Color gold2 = Color(0xFFFFD978);
+  static const Color gold3 = Color(0xFFFFE7A8);
 
-  static const List<String> _steps = [
-    'Reading facial landmarks',
-    'Analyzing structure & symmetry',
-    'Calculating proportions',
-    'Preparing results',
-  ];
-
-  bool get _isAppActive {
-    final state = _lastLifecycleState;
-    return state == null ||
-        state == AppLifecycleState.resumed ||
-        state == AppLifecycleState.inactive;
-  }
+  static const Color purple = Color(0xFF8A3FFC);
+  static const Color purple2 = Color(0xFFC77DFF);
+  static const Color blue = Color(0xFF63D8FF);
 
   @override
   void initState() {
     super.initState();
 
-    WidgetsBinding.instance.addObserver(this);
-    _lastLifecycleState = WidgetsBinding.instance.lifecycleState;
-
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
-    _spin = AnimationController(
+    _pulse = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat();
+      duration: const Duration(milliseconds: 1700),
+    )..repeat(reverse: true);
 
     _fade = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 420),
+      duration: const Duration(milliseconds: 520),
     );
+
+    _progressCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 14),
+    )..forward();
+
+    _scan = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1700),
+    )..repeat(reverse: true);
+
+    _orbit = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 5200),
+    )..repeat();
 
     _opacity = CurvedAnimation(
       parent: _fade,
@@ -114,509 +88,517 @@ class _AnalyzeLoadingScreenState extends State<AnalyzeLoadingScreen>
     );
 
     _fade.forward();
-
-    _stepTimer = Timer.periodic(const Duration(milliseconds: 850), (t) {
-      if (!mounted) return;
-
-      if (_step < _steps.length - 1) {
-        setState(() {
-          _step++;
-        });
-      } else {
-        t.cancel();
-        _stepTimer = null;
-      }
-    });
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _startAnalysis();
-    });
+    _startAnalysis();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    _lastLifecycleState = state;
+  double _readDouble(dynamic v) =>
+      v is num ? v.toDouble() : double.tryParse("$v") ?? 0.0;
 
-    if (state == AppLifecycleState.detached) {
-      _analysisRequestId++;
-      _stopStepTimer();
+  String _readString(dynamic v) => v?.toString() ?? "";
+
+  void _finish(Map<String, dynamic> psl) {
+  if (_done) return;
+  _done = true;
+
+  if (!mounted) return;
+
+  Navigator.of(context).pushReplacement(
+    PageRouteBuilder(
+      transitionDuration: const Duration(milliseconds: 420),
+      reverseTransitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (_, animation, __) {
+        return FadeTransition(
+          opacity: CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOut,
+          ),
+          child: PSLResultScreen(
+            imageFile: widget.imageFile,
+            psl: psl,
+          ),
+        );
+      },
+    ),
+  );
+}
+  void _fail(String message) {
+  if (_done) return;
+  _done = true;
+
+  if (!mounted) return;
+
+  Navigator.of(context).pop(message);
+}
+
+  Future<void> _saveBackendLockState(
+    SharedPreferences prefs,
+    Map<String, dynamic> result,
+  ) async {
+    await prefs.setBool(
+      "home_free_locked",
+      result["locked"] == true,
+    );
+
+    await prefs.setString(
+      "home_free_cooldown_until",
+      result["cooldown_until"]?.toString() ?? "",
+    );
+
+    await prefs.setInt(
+      "home_free_used",
+      result["free_attempts_used"] is int
+          ? result["free_attempts_used"]
+          : int.tryParse("${result["free_attempts_used"]}") ?? 1,
+    );
+
+    await prefs.setInt(
+      "home_free_limit",
+      result["free_attempts_limit"] is int
+          ? result["free_attempts_limit"]
+          : int.tryParse("${result["free_attempts_limit"]}") ?? 1,
+    );
+  }
+
+  Future<void> _startAnalysis() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+
+    final guestToken =
+        prefs.getString("guest_token") ??
+        "guest_${DateTime.now().millisecondsSinceEpoch}";
+
+    await prefs.setString("guest_token", guestToken);
+
+    final accessToken = await AppState.getToken();
+
+    if (accessToken == null || accessToken.isEmpty) {
+      _fail("Session expired. Please sign in again.");
+      return;
     }
-  }
 
+    final result = await analysis.AnalysisBlock.runFreePslAnalysis(
+      imageFile: widget.imageFile,
+      guestToken: guestToken,
+      accessToken: accessToken,
+    ).timeout(
+      const Duration(seconds: 35),
+    );
+
+    if (!mounted || _done) return;
+
+    final status = result["status"];
+
+    if (status == "rate_limited") {
+      await _saveBackendLockState(prefs, result);
+
+      _fail("You’ve used your free scan. Try again when it unlocks.");
+      return;
+    }
+
+    if (status != "success") {
+      _fail(
+        "Something went wrong while processing your photo. Please try again.",
+      );
+      return;
+    }
+
+    final psl = result["psl"];
+
+    if (psl == null || psl is! Map) {
+      _fail(
+        "Something went wrong while processing your photo. Please try again.",
+      );
+      return;
+    }
+
+    await _saveBackendLockState(prefs, result);
+
+    final safePsl = <String, dynamic>{
+      "psl_score": (psl["psl_score"] is num)
+          ? (psl["psl_score"] as num).toDouble()
+          : 0.0,
+      "tier": _readString(psl["tier"]),
+      "percentile": psl["percentile"] ?? "",
+      "confidence": _readDouble(psl["confidence"]),
+      "stable_score_float": _readDouble(psl["stable_score_float"]),
+      "raw_expected": _readDouble(psl["raw_expected"]),
+      "bonus_applied": _readDouble(psl["bonus_applied"]),
+      "strengths": result["strengths"] is List ? result["strengths"] : [],
+      "limits": result["limits"] is List ? result["limits"] : [],
+      "locked": result["locked"] == true,
+      "cooldown_until": result["cooldown_until"],
+      "free_attempts_used": result["free_attempts_used"],
+      "free_attempts_limit": result["free_attempts_limit"],
+    };
+
+    await prefs.setString(
+      "welcome_psl",
+      jsonEncode(safePsl),
+    );
+
+    _finish(safePsl);
+  } catch (e) {
+    if (!mounted || _done) return;
+
+    final error = e.toString().toLowerCase();
+
+    if (error.contains("401") ||
+        error.contains("403") ||
+        error.contains("unauthorized") ||
+        error.contains("invalid_token")) {
+      _fail("Session expired. Please sign in again.");
+      return;
+    }
+
+    if (error.contains("422") ||
+        error.contains("unprocessable") ||
+        error.contains("no_face_detected") ||
+        error.contains("no face detected") ||
+        error.contains("no face") ||
+        error.contains("face could not be detected")) {
+      _fail(
+        "No face detected. Center your full face and hair inside the camera and try again.",
+      );
+      return;
+    }
+
+    if (error.contains("socket") ||
+        error.contains("network") ||
+        error.contains("connection") ||
+        error.contains("internet") ||
+        error.contains("failed host lookup")) {
+      _fail(
+        "No internet connection. Check your Wi-Fi or mobile data and try again.",
+      );
+      return;
+    }
+
+    if (error.contains("timeout")) {
+      _fail("Connection timed out. Please try again in a moment.");
+      return;
+    }
+
+    if (error.contains("429") ||
+        error.contains("too_many") ||
+        error.contains("rate")) {
+      _fail("You’ve used your free scan. Try again when it unlocks.");
+      return;
+    }
+
+    if (error.contains("500") ||
+        error.contains("server") ||
+        error.contains("internal")) {
+      _fail("Servers are temporarily busy. Please try again shortly.");
+      return;
+    }
+
+    _fail(
+      "Something went wrong while processing your photo. Please try again.",
+    );
+  }
+}
   @override
   void dispose() {
-    _analysisRequestId++;
-    _stopStepTimer();
-    WidgetsBinding.instance.removeObserver(this);
-    _spin.dispose();
+    _pulse.dispose();
     _fade.dispose();
+    _progressCtrl.dispose();
+    _scan.dispose();
+    _orbit.dispose();
     super.dispose();
   }
 
-  void _stopStepTimer() {
-    _stepTimer?.cancel();
-    _stepTimer = null;
+  double _uiProgressValue() {
+    return (0.12 + (_progressCtrl.value * 0.84)).clamp(0.0, 0.985);
   }
 
-  Future<void> _popSafely() async {
-    if (!mounted) return;
-
-    try {
-      final navigator = Navigator.of(context);
-      final route = ModalRoute.of(context);
-      final isCurrent = route?.isCurrent ?? false;
-
-      if (navigator.canPop() && isCurrent) {
-        navigator.pop();
-      }
-    } catch (e) {
-      debugPrint('popSafely error: $e');
-    }
-  }
-
-  bool _isValidString(String? value) {
-    return value != null && value.trim().isNotEmpty;
-  }
-
-  int? _parseScore(dynamic raw) {
-    if (raw is int) {
-      return raw.clamp(1, 8).toInt();
-    }
-
-    if (raw is double) {
-      if (raw.isNaN || raw.isInfinite) return null;
-      return raw.round().clamp(1, 8).toInt();
-    }
-
-    if (raw is String) {
-      final value = raw.trim();
-      if (value.isEmpty) return null;
-
-      final parsedInt = int.tryParse(value);
-      if (parsedInt != null) {
-        return parsedInt.clamp(1, 8).toInt();
-      }
-
-      final parsedDouble = double.tryParse(value);
-      if (parsedDouble != null &&
-          !parsedDouble.isNaN &&
-          !parsedDouble.isInfinite) {
-        return parsedDouble.round().clamp(1, 8).toInt();
-      }
-    }
-
-    return null;
-  }
-
-  List<String> _sanitizeStringList(dynamic raw) {
-    if (raw is! List) return const <String>[];
-
-    final Set<String> seen = <String>{};
-    final List<String> out = <String>[];
-
-    for (final item in raw.take(20)) {
-      String value = '';
-
-      try {
-        value = item?.toString().trim() ?? '';
-      } catch (_) {
-        value = '';
-      }
-
-      if (value.isEmpty) continue;
-
-      final normalized = value.toLowerCase();
-      if (!seen.add(normalized)) continue;
-
-      out.add(value);
-      if (out.length >= 10) break;
-    }
-
-    return out;
-  }
-
-  Map<String, dynamic> _buildTrustedPsl({
-    required int score,
-    required List<String> strengths,
-    required List<String> limits,
-  }) {
-    return <String, dynamic>{
-      'psl_score': score,
-      'strengths': strengths,
-      'limits': limits,
-      'is_cached': false,
-    };
-  }
-
-  String _mapErrorToCallbackMessage(AnalysisErrorType type) {
-    switch (type) {
-      case AnalysisErrorType.imageMissing:
-      case AnalysisErrorType.imageEmpty:
-      case AnalysisErrorType.imageTooLarge:
-      case AnalysisErrorType.faceNotDetected:
-      case AnalysisErrorType.invalidPslPayload:
-      case AnalysisErrorType.missingOrInvalidScore:
-      case AnalysisErrorType.invalidResponseType:
-      case AnalysisErrorType.emptyResponse:
-      case AnalysisErrorType.invalidStatus:
-      case AnalysisErrorType.analysisFailed:
-        return 'invalid_image';
-
-      case AnalysisErrorType.invalidContext:
-      case AnalysisErrorType.routeNotCurrent:
-      case AnalysisErrorType.navigationFailed:
-      case AnalysisErrorType.unexpected:
-        return 'network';
-    }
-  }
-
-  Future<void> _safeCallOnFinished(Map<String, dynamic> psl) async {
-    try {
-      widget.onFinished(psl);
-    } catch (e, stack) {
-      debugPrint('onFinished callback failed: $e');
-      debugPrint(stack.toString());
-    }
-  }
-
-  Future<void> _safeCallOnError(String message) async {
-    try {
-      widget.onError(message);
-    } catch (e, stack) {
-      debugPrint('onError callback failed: $e');
-      debugPrint(stack.toString());
-    }
-  }
-
-  // =========================================================
-  // BACKEND CALL
-  // =========================================================
-  Future<void> _startAnalysis() async {
-  if (!mounted || _analysisRunning || _navigated) return;
-
-  /// 🔒 HARD LOCK – sprječava duple API requeste
-  _analysisRunning = true;
-
-  if (mounted) {
-    setState(() {});
-  }
-
-  final int requestId = ++_analysisRequestId;
-  final Stopwatch stopwatch = Stopwatch()..start();
-
-  SharedPreferences? prefs;
-
-  bool isRequestStale() {
-    return !mounted ||
-        _navigated ||
-        requestId != _analysisRequestId;
-  }
-
-  bool isRouteCurrent() {
-    if (!mounted) return false;
-    final route = ModalRoute.of(context);
-    return route?.isCurrent ?? false;
-  }
-
-  Future<void> exitWithMessage(String message) async {
-    _stopStepTimer();
-
-    if (!mounted) return;
-
-    await _popSafely();
-
-    await Future.delayed(const Duration(milliseconds: 80));
-
-    widget.onError(message);
-  }
-
-  try {
-
-    if (isRequestStale()) return;
-
-    if (!isRouteCurrent()) {
-      await exitWithMessage("network");
-      return;
-    }
-
-    /// FILE VALIDATION
-    int fileLength;
-
-    try {
-      fileLength = await widget.imageFile.length().timeout(
-        const Duration(seconds: 2),
-      );
-    } catch (_) {
-      await exitWithMessage("invalid_image");
-      return;
-    }
-
-    if (fileLength <= 0) {
-      await exitWithMessage("invalid_image");
-      return;
-    }
-
-    if (fileLength > 10 * 1024 * 1024) {
-      await exitWithMessage("invalid_image");
-      return;
-    }
-
-    if (isRequestStale()) return;
-
-    /// PREFS
-    try {
-      prefs = await SharedPreferences.getInstance().timeout(
-        const Duration(seconds: 2),
-      );
-    } catch (_) {}
-
-    /// TOKEN
-    String? guestToken = prefs?.getString('guest_token');
-
-    if (guestToken == null || guestToken.trim().length < 8) {
-      guestToken = const Uuid().v4();
-
-      try {
-        await prefs?.setString('guest_token', guestToken);
-      } catch (_) {}
-    }
-
-    if (isRequestStale()) return;
-
-    /// API CALL
-    final dynamic resultDynamic =
-        await analysis.AnalysisBlock.runFreePslAnalysis(
-      imageFile: widget.imageFile,
-      guestToken: guestToken,
-    ).timeout(const Duration(seconds: 25));
-
-    /// request više nije aktualan
-    if (isRequestStale()) return;
-
-    /// rezultat nije map
-    if (resultDynamic is! Map<String, dynamic>) {
-      await exitWithMessage("invalid_image");
-      return;
-    }
-
-    final result = resultDynamic;
-
-    if (result["status"] != "success") {
-      await exitWithMessage("invalid_image");
-      return;
-    }
-
-    final rawPsl = result["psl"];
-
-    if (rawPsl == null || rawPsl is! Map) {
-      await exitWithMessage("invalid_image");
-      return;
-    }
-
-    final Map<String, dynamic> psl = Map<String, dynamic>.from(rawPsl);
-
-    final int? parsedScore = _parseScore(psl["psl_score"]);
-
-    if (parsedScore == null) {
-      await exitWithMessage("invalid_image");
-      return;
-    }
-
-    final strengths = _sanitizeStringList(result["strengths"]);
-    final limits = _sanitizeStringList(result["limits"]);
-
-    final safeStrengths =
-        strengths.isEmpty && limits.isEmpty ? ["facial structure"] : strengths;
-
-    /// 🔧 BACKEND DATA PROPAGATION
-    final trustedPsl = {
-      "psl_score": parsedScore,
-      "strengths": safeStrengths,
-      "limits": limits,
-      "metric_cards": result["metric_cards"] ?? psl["metric_cards"] ?? {},
-      "is_cached": false,
-    };
-
-    /// CACHE
-    try {
-      final encoded = jsonEncode(trustedPsl);
-      await prefs?.setString("welcome_psl", encoded);
-    } catch (_) {}
-
-    stopwatch.stop();
-
-    final elapsed = stopwatch.elapsed;
-
-    /// MINIMUM LOADING UX
-    if (elapsed < const Duration(seconds: 2)) {
-      await Future.delayed(const Duration(seconds: 2) - elapsed);
-    }
-
-    if (isRequestStale()) return;
-
-    if (!isRouteCurrent()) {
-      await exitWithMessage("network");
-      return;
-    }
-
-    if (_navigated) return;
-
-    _navigated = true;
-    _stopStepTimer();
-
-    /// CALLBACK
-    try {
-      widget.onFinished(trustedPsl);
-    } catch (_) {}
-
-    /// NAVIGATION SAFETY
-    if (!mounted) return;
-
-    try {
-      final navigator = Navigator.of(context);
-
-      await navigator.pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => PSLLResultScreen(
-            psl: trustedPsl,
-            imageFile: widget.imageFile,
-            onContinue: () {},
-          ),
-        ),
-      );
-    } catch (_) {
-      await exitWithMessage("network");
-    }
-  }
-
-  on SocketException {
-    await exitWithMessage("network");
-  }
-
-  on TimeoutException {
-    await exitWithMessage("network");
-  }
-
-  catch (_) {
-    await exitWithMessage("invalid_image");
-  }
-
-  finally {
-    stopwatch.stop();
-    _stopStepTimer();
-
-    if (requestId == _analysisRequestId) {
-      if (mounted) {
-        setState(() {
-          _analysisRunning = false;
-        });
-      } else {
-        _analysisRunning = false;
-      }
-    }
-  }
-}
-
-  // =========================================================
-  // UI (NE DIRATI)
-  // =========================================================
   @override
-  Widget build(BuildContext context) {
-    final media = MediaQuery.of(context);
+Widget build(BuildContext context) {
+  final media = MediaQuery.of(context);
 
-    return WillPopScope(
-      onWillPop: () async => false,
+  final lockedMedia = media.copyWith(
+    textScaler: const TextScaler.linear(1.0),
+  );
+
+  return PopScope<Object?>(
+    canPop: false,
+    onPopInvokedWithResult: (didPop, result) {
+      // hard block user/system back
+    },
+    child: MediaQuery(
+      data: lockedMedia,
       child: Scaffold(
-        backgroundColor: Colors.transparent,
+        backgroundColor: bg,
         body: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [bgTop, bgMid, bgBottom],
-              stops: [0.0, 0.55, 1.0],
+              colors: [bg, bg2, bg],
             ),
           ),
           child: Stack(
             children: [
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: Opacity(
-                    opacity: 0.025,
-                    child: ImageFiltered(
-                      imageFilter:
-                          ImageFilter.blur(sigmaX: 0.6, sigmaY: 0.6),
-                      child: Container(color: Colors.white),
-                    ),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: EdgeInsets.fromLTRB(
-                  24,
-                  media.padding.top + 40,
-                  24,
-                  media.padding.bottom + 40,
-                ),
-                child: FadeTransition(
-                  opacity: _opacity,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        width: 64,
-                        height: 64,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: gold.withOpacity(0.35),
-                            width: 1.2,
-                          ),
+              Positioned.fill(child: _backgroundFx()),
+              SafeArea(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final screenWidth = constraints.maxWidth;
+                    final screenHeight = constraints.maxHeight;
+                    final compact = screenHeight < 760;
+
+                    final imageSize =
+                        math.min(screenWidth * 0.72, screenHeight * 0.36);
+
+                    return FadeTransition(
+                      opacity: _opacity,
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          22,
+                          compact ? 12 : 18,
+                          22,
+                          compact ? 18 : 24,
                         ),
-                        child: Stack(
-                          alignment: Alignment.center,
+                        child: Column(
                           children: [
-                            const CircularProgressIndicator(
-                              strokeWidth: 2.4,
-                              valueColor: AlwaysStoppedAnimation<Color>(gold),
-                            ),
-                            RotationTransition(
-                              turns: _spin,
-                              child: Container(
-                                width: 46,
-                                height: 46,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: gold.withOpacity(0.35),
-                                    width: 1.2,
-                                  ),
-                                ),
-                              ),
-                            ),
+                            const Spacer(),
+                            _hero(imageSize: imageSize),
+                            SizedBox(height: compact ? 34 : 44),
+                            _titleBlock(compact: compact),
+                            SizedBox(height: compact ? 30 : 38),
+                            _progressBlock(),
+                            const Spacer(flex: 2),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 30),
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 320),
-                        child: Text(
-                          _steps[_step],
-                          key: ValueKey(_step),
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+  Widget _backgroundFx() {
+    return AnimatedBuilder(
+      animation: Listenable.merge([_pulse, _orbit]),
+      builder: (context, _) {
+        final p = _pulse.value;
+        final t = _orbit.value * math.pi * 2;
+
+        return Stack(
+          children: [
+            Positioned(
+              top: -120,
+              left: -120,
+              right: -120,
+              child: Container(
+                height: 360,
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    colors: [
+                      purple.withOpacity(0.12 + p * 0.04),
+                      purple.withOpacity(0.035),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 170 + math.sin(t) * 18,
+              left: -140,
+              right: -140,
+              child: Container(
+                height: 440,
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    colors: [
+                      gold.withOpacity(0.09 + p * 0.035),
+                      purple.withOpacity(0.035),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: -160,
+              left: -130,
+              right: -130,
+              child: Container(
+                height: 360,
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    colors: [
+                      purple2.withOpacity(0.10),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _hero({required double imageSize}) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([_pulse, _scan, _orbit]),
+      builder: (context, _) {
+        final pulse = _pulse.value;
+        final scanY = (_scan.value * imageSize).clamp(26.0, imageSize - 26.0);
+
+        return SizedBox(
+          width: imageSize + 78,
+          height: imageSize + 78,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: imageSize + 74,
+                height: imageSize + 74,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: purple.withOpacity(0.22 + pulse * 0.12),
+                      blurRadius: 80,
+                      spreadRadius: 8,
+                    ),
+                    BoxShadow(
+                      color: gold.withOpacity(0.15 + pulse * 0.10),
+                      blurRadius: 54,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+              ),
+              RotationTransition(
+                turns: _orbit,
+                child: CustomPaint(
+                  size: Size(imageSize + 56, imageSize + 56),
+                  painter: _CleanOrbitPainter(
+                    gold: gold2.withOpacity(0.80),
+                    purple: purple2.withOpacity(0.75),
+                  ),
+                ),
+              ),
+              Container(
+                width: imageSize,
+                height: imageSize,
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(42),
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [gold2, purple2, blue],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: purple.withOpacity(0.34),
+                      blurRadius: 36,
+                    ),
+                    BoxShadow(
+                      color: gold.withOpacity(0.22),
+                      blurRadius: 34,
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.48),
+                      blurRadius: 30,
+                      offset: const Offset(0, 18),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(36),
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: Image.file(
+                          widget.imageFile,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      Positioned.fill(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.black.withOpacity(0.10),
+                                Colors.transparent,
+                                Colors.black.withOpacity(0.28),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Processing image securely',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Color(0x99FFFFFF),
+                      Positioned.fill(
+                        child: CustomPaint(
+                          painter: _MinimalGridPainter(
+                            color: Colors.white.withOpacity(0.035),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        top: scanY - 46,
+                        child: Container(
+                          height: 92,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.transparent,
+                                purple.withOpacity(0.06),
+                                gold.withOpacity(0.10),
+                                gold2.withOpacity(0.16),
+                                purple2.withOpacity(0.07),
+                                Colors.transparent,
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        top: scanY - 2,
+                        child: Container(
+                          height: 4,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [
+                                Colors.transparent,
+                                purple2,
+                                gold2,
+                                gold3,
+                                gold2,
+                                purple2,
+                                Colors.transparent,
+                              ],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: gold.withOpacity(0.55),
+                                blurRadius: 20,
+                              ),
+                              BoxShadow(
+                                color: purple.withOpacity(0.45),
+                                blurRadius: 22,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ],
@@ -625,8 +607,183 @@ class _AnalyzeLoadingScreenState extends State<AnalyzeLoadingScreen>
               ),
             ],
           ),
-        ),
-      ),
+        );
+      },
     );
+  }
+
+  Widget _titleBlock({required bool compact}) {
+    return Column(
+      children: [
+        Text(
+          "Comparing to millions of faces",
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: compact ? 29 : 34,
+            fontWeight: FontWeight.w900,
+            color: Colors.white,
+            letterSpacing: -1.25,
+            height: 1.02,
+            shadows: [
+              Shadow(
+                color: purple.withOpacity(0.24),
+                blurRadius: 24,
+              ),
+              Shadow(
+                color: gold.withOpacity(0.14),
+                blurRadius: 18,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          "Building your facial profile",
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: compact ? 14 : 15,
+            fontWeight: FontWeight.w800,
+            color: Colors.white.withOpacity(0.54),
+            letterSpacing: 0.1,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _progressBlock() {
+    return AnimatedBuilder(
+      animation: Listenable.merge([_progressCtrl, _pulse, _orbit]),
+      builder: (context, _) {
+        final value = _uiProgressValue();
+        final shimmer = (_orbit.value * 2.0) - 0.6;
+
+        return Container(
+          height: 14,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            color: Colors.white.withOpacity(0.055),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.055),
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: Stack(
+              children: [
+                FractionallySizedBox(
+                  widthFactor: value,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [purple, purple2, gold, gold3],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: purple.withOpacity(0.35),
+                          blurRadius: 20,
+                        ),
+                        BoxShadow(
+                          color: gold.withOpacity(0.25),
+                          blurRadius: 18,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                FractionallySizedBox(
+                  widthFactor: value,
+                  child: Align(
+                    alignment: Alignment(shimmer, 0),
+                    child: Container(
+                      width: 80,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.white.withOpacity(0),
+                            Colors.white.withOpacity(0.38),
+                            Colors.white.withOpacity(0),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CleanOrbitPainter extends CustomPainter {
+  final Color gold;
+  final Color purple;
+
+  const _CleanOrbitPainter({
+    required this.gold,
+    required this.purple,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+
+    final goldPaint = Paint()
+      ..color = gold
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round;
+
+    final purplePaint = Paint()
+      ..color = purple
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawArc(rect.deflate(10), -math.pi / 2, math.pi * 0.34, false, goldPaint);
+    canvas.drawArc(rect.deflate(18), math.pi * 0.35, math.pi * 0.24, false, purplePaint);
+    canvas.drawArc(
+      rect.deflate(24),
+      math.pi * 1.08,
+      math.pi * 0.22,
+      false,
+      goldPaint..color = gold.withOpacity(0.55),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _CleanOrbitPainter oldDelegate) {
+    return oldDelegate.gold != gold || oldDelegate.purple != purple;
+  }
+}
+
+class _MinimalGridPainter extends CustomPainter {
+  final Color color;
+
+  const _MinimalGridPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 0.75;
+
+    canvas.drawLine(Offset(size.width / 2, 0), Offset(size.width / 2, size.height), paint);
+    canvas.drawLine(Offset(0, size.height / 2), Offset(size.width, size.height / 2), paint);
+
+    final soft = Paint()
+      ..color = color.withOpacity(0.55)
+      ..strokeWidth = 0.55;
+
+    canvas.drawLine(Offset(size.width / 3, 0), Offset(size.width / 3, size.height), soft);
+    canvas.drawLine(Offset((size.width / 3) * 2, 0), Offset((size.width / 3) * 2, size.height), soft);
+  }
+
+  @override
+  bool shouldRepaint(covariant _MinimalGridPainter oldDelegate) {
+    return oldDelegate.color != color;
   }
 }

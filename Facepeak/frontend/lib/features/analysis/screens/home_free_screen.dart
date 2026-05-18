@@ -1,28 +1,16 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'package:flutter/material.dart';
-import 'package:frontend/features/analysis/screens/analyze_loading_screen.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:io';
-import 'appeal_explanation_screen.dart';
-import 'settings_free_screen.dart';
-import 'package:flutter/services.dart';
-// ✅ KEEP: Free preparation screen (HOME must go here, NOT upload)
-import 'appeal_free_preparation_screen.dart';
-import 'analyze_appeal_loading_screen.dart';
-// ✅ KEEP: PSL flow screen (whatever your PSL free screen is)
-import 'psl_free_preparation_screen.dart';
-import 'package:frontend/features/analysis/state/elite_tabs_free_screen.dart';
+import 'dart:ui';
 
-enum AnalysisChoice { psl, appeal }
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'settings_free_screen.dart';
+import 'psl_free_rewarded_gate_screen.dart';
 
 class HomeFreeScreen extends StatefulWidget {
-  final bool appealSuccess;
-
-  const HomeFreeScreen({
-    super.key,
-    this.appealSuccess = false,
-  });
+  const HomeFreeScreen({super.key});
 
   @override
   State<HomeFreeScreen> createState() => _HomeFreeScreenState();
@@ -30,70 +18,53 @@ class HomeFreeScreen extends StatefulWidget {
 
 class _HomeFreeScreenState extends State<HomeFreeScreen>
     with TickerProviderStateMixin {
-  // =========================================================
-  // CONFIG
-  // =========================================================
-  static const int kLimit = 2;
-  static const Duration kCooldown = Duration(hours: 24);
+  static const Color bg = Color(0xFF03030A);
+  static const Color bg2 = Color(0xFF080513);
+  static const Color ink = Color(0xFFF8F7FF);
+  static const Color muted = Color(0xFF9A96AD);
 
-  // =========================================================
-  // THEME
-  // =========================================================
-  static const Color bg = Color(0xFF06070B);
-  static const Color card = Color(0xFF11131A);
-  static const Color text = Color(0xFFF4F7FF);
-  static const Color muted = Color(0xFF9AA3B2);
-  static const Color micro = Color(0xFF737D8E);
-  static const Color border = Color(0x18FFFFFF);
+  static const Color violet = Color(0xFF7C3DFF);
+  static const Color violet2 = Color(0xFFA987FF);
+  static const Color violet3 = Color(0xFFE7DAFF);
+  static const Color gold = Color(0xFFFFD88A);
 
-  static const Color accentPSL = Color(0xFF92A5FF);
-  static const Color accentPSLSoft = Color(0xFFC6D2FF);
-  static const Color accentAppeal = Color(0xFFFFC85A);
-  static const Color accentAppealSoft = Color(0xFFFFE4A3);
+  static const String _kLocked = "home_free_locked";
+  static const String _kCooldownUntil = "home_free_cooldown_until";
+  static const String _kUsed = "home_free_used";
+  static const String _kLimit = "home_free_limit";
 
-  static const double rCard = 26;
-
-  // =========================================================
-  // STATE (ONLY HOME KNOWS THIS)
-  // =========================================================
-  late String guestToken;
-
-  AnalysisChoice? _activeChoice;
-  DateTime? _cooldownEndsAt;
-  int _used = 0;
-
-  Timer? _ticker;
-  bool _bootstrapped = false;
-
-  // =========================================================
-  // ANIMATION
-  // =========================================================
   late final AnimationController _intro;
   late final AnimationController _ambient;
-  late final AnimationController _ringGlow;
-  late final Animation<double> _fadeIn;
-  late final Animation<double> _slideIn;
+  late final AnimationController _scan;
+  late final AnimationController _orbit;
+  late final AnimationController _pulse;
 
-  // =========================================================
-  // PERSIST KEYS (HOME ONLY)
-  // =========================================================
-  static const String _kChoice = "home_free.active_choice";
-  static const String _kEndsAt = "home_free.cooldown_ends_at";
-  static const String _kUsed = "home_free.used";
+  late final Animation<double> _fade;
+  late final Animation<double> _slide;
 
-  // =========================================================
-  // LIFECYCLE
-  // =========================================================
+  Timer? _ticker;
+
+  bool _bootstrapped = false;
+  bool _locked = false;
+  int _used = 0;
+  int _limit = 1;
+  DateTime? _cooldownUntil;
+
+  Duration get _remaining {
+    if (_cooldownUntil == null) return Duration.zero;
+    final d = _cooldownUntil!.difference(DateTime.now());
+    return d.isNegative ? Duration.zero : d;
+  }
+
+  bool get _isLocked => _locked && _remaining > Duration.zero;
+
   @override
   void initState() {
     super.initState();
 
-    print('');
-    print('🏠 HOME initState');
-
     _intro = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 700),
+      duration: const Duration(milliseconds: 760),
     );
 
     _ambient = AnimationController(
@@ -101,20 +72,27 @@ class _HomeFreeScreenState extends State<HomeFreeScreen>
       duration: const Duration(seconds: 18),
     )..repeat();
 
-    _ringGlow = AnimationController(
+    _scan = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2800),
+      duration: const Duration(milliseconds: 2200),
     )..repeat(reverse: true);
 
-    _fadeIn = CurvedAnimation(
+    _orbit = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 7800),
+    )..repeat();
+
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2600),
+    )..repeat(reverse: true);
+
+    _fade = CurvedAnimation(
       parent: _intro,
       curve: Curves.easeOutCubic,
     );
 
-    _slideIn = Tween<double>(
-      begin: 18,
-      end: 0,
-    ).animate(
+    _slide = Tween<double>(begin: 18, end: 0).animate(
       CurvedAnimation(
         parent: _intro,
         curve: Curves.easeOutCubic,
@@ -122,8 +100,6 @@ class _HomeFreeScreenState extends State<HomeFreeScreen>
     );
 
     _intro.forward();
-
-    _initGuestToken();
     _hydrate();
     _startTicker();
   }
@@ -133,632 +109,563 @@ class _HomeFreeScreenState extends State<HomeFreeScreen>
     _ticker?.cancel();
     _intro.dispose();
     _ambient.dispose();
-    _ringGlow.dispose();
+    _scan.dispose();
+    _orbit.dispose();
+    _pulse.dispose();
     super.dispose();
   }
 
-  // =========================================================
-  // ✅ GUEST TOKEN INIT
-  // =========================================================
-  Future<void> _initGuestToken() async {
-    final prefs = await SharedPreferences.getInstance();
-
-    guestToken =
-        prefs.getString("guest_token") ??
-        "guest_${DateTime.now().millisecondsSinceEpoch}";
-
-    await prefs.setString("guest_token", guestToken);
-
-    print("🔥 HOME guestToken = $guestToken");
-  }
-
-  // =========================================================
-  // HYDRATE / SAVE
-  // =========================================================
   Future<void> _hydrate() async {
     final prefs = await SharedPreferences.getInstance();
 
-    final choiceStr = prefs.getString(_kChoice);
-    final endsAtStr = prefs.getString(_kEndsAt);
-    int used = prefs.getInt(_kUsed) ?? 0;
+    final locked = prefs.getBool(_kLocked) ?? false;
+    final used = prefs.getInt(_kUsed) ?? 0;
+    final limit = prefs.getInt(_kLimit) ?? 1;
+    final rawUntil = prefs.getString(_kCooldownUntil);
 
-    AnalysisChoice? choice;
-    if (choiceStr == "psl") choice = AnalysisChoice.psl;
-    if (choiceStr == "appeal") choice = AnalysisChoice.appeal;
-
-    DateTime? endsAt;
-    if (endsAtStr != null) {
-      endsAt = DateTime.tryParse(endsAtStr);
+    DateTime? until;
+    if (rawUntil != null && rawUntil.isNotEmpty) {
+      until = DateTime.tryParse(rawUntil)?.toLocal();
     }
 
-    if (endsAt != null && DateTime.now().isAfter(endsAt)) {
-      print('⏰ HYDRATE → cooldown expired');
-      choice = null;
-      endsAt = null;
-      used = 0;
-    }
+    if (until != null && DateTime.now().isAfter(until)) {
+      await _clearLock();
 
-    if (widget.appealSuccess == true) {
-      print('✅ HYDRATE → APPLY APPEAL SUCCESS');
-      used = (used + 1).clamp(0, kLimit);
-      await prefs.setInt(_kUsed, used);
+      if (!mounted) return;
+
+      setState(() {
+        _locked = false;
+        _used = 0;
+        _limit = 1;
+        _cooldownUntil = null;
+        _bootstrapped = true;
+      });
+      return;
     }
 
     if (!mounted) return;
 
     setState(() {
-      _activeChoice = choice;
-      _cooldownEndsAt = endsAt;
-      _used = used.clamp(0, kLimit);
+      _locked = locked;
+      _used = used;
+      _limit = limit <= 0 ? 1 : limit;
+      _cooldownUntil = until;
       _bootstrapped = true;
     });
-
-    print("💾💾💾 HYDRATE EXECUTED 💾💾💾");
-    print("💾 choiceStr = $choiceStr");
-    print("💾 parsed choice = $_activeChoice");
-    print("💾 endsAtStr = $endsAtStr");
-    print("💾 parsed endsAt = $_cooldownEndsAt");
-    print("💾 FINAL used = $_used");
-    print("💾💾💾💾💾💾💾💾💾💾💾");
-
-    if (_cooldownEndsAt == null) {
-      await _clearPersisted();
-    }
   }
 
-  Future<void> _persist() async {
+  Future<void> _clearLock() async {
     final prefs = await SharedPreferences.getInstance();
 
-    print('💾 PERSIST → used=$_used, choice=$_activeChoice');
-
-    if (_activeChoice == null || _cooldownEndsAt == null) {
-      await _clearPersisted();
-      return;
-    }
-
-    await prefs.setString(
-      _kChoice,
-      _activeChoice == AnalysisChoice.psl ? "psl" : "appeal",
-    );
-
-    await prefs.setString(
-      _kEndsAt,
-      _cooldownEndsAt!.toIso8601String(),
-    );
-
-    await prefs.setInt(_kUsed, _used);
-  }
-
-  Future<void> _clearPersisted() async {
-    final prefs = await SharedPreferences.getInstance();
-
-    print("🗑 CLEAR PERSISTED");
-
-    await prefs.remove(_kChoice);
-    await prefs.remove(_kEndsAt);
+    await prefs.remove(_kLocked);
+    await prefs.remove(_kCooldownUntil);
     await prefs.remove(_kUsed);
+    await prefs.remove(_kLimit);
   }
 
-  // =========================================================
-  // TICKER
-  // =========================================================
   void _startTicker() {
     _ticker?.cancel();
 
-    _ticker = Timer.periodic(const Duration(seconds: 1), (timer) {
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) async {
       if (!mounted) return;
 
-      if (_cooldownEndsAt != null &&
-          DateTime.now().isAfter(_cooldownEndsAt!)) {
-        print('⏰ COOLDOWN EXPIRED → RESET');
+      if (_cooldownUntil != null && DateTime.now().isAfter(_cooldownUntil!)) {
+        await _clearLock();
+
+        if (!mounted) return;
 
         setState(() {
-          _cooldownEndsAt = null;
-          _activeChoice = null;
+          _locked = false;
           _used = 0;
+          _limit = 1;
+          _cooldownUntil = null;
         });
-
-        unawaited(_clearPersisted());
-        timer.cancel();
         return;
       }
 
-      setState(() {});
+      if (_isLocked) setState(() {});
     });
   }
 
-  // =========================================================
-  // DERIVED STATE
-  // =========================================================
-  bool get _cooldownActive => _cooldownEndsAt != null;
-  bool get _hardLocked => _cooldownActive && _used >= kLimit;
-
-  Duration get _remaining {
-    if (_cooldownEndsAt == null) return Duration.zero;
-    final d = _cooldownEndsAt!.difference(DateTime.now());
-    return d.isNegative ? Duration.zero : d;
+  String _formatRemaining(Duration d) {
+    final total = d.inSeconds.clamp(0, 99999999);
+    final h = (total ~/ 3600).toString().padLeft(2, '0');
+    final m = ((total % 3600) ~/ 60).toString().padLeft(2, '0');
+    final s = (total % 60).toString().padLeft(2, '0');
+    return "$h:$m:$s";
   }
 
-  // =========================================================
-  // VISUAL LOCK LOGIC
-  // =========================================================
-  bool _isCardVisuallyLocked(AnalysisChoice cardChoice) {
-    if (!_cooldownActive) return false;
-    if (_hardLocked) return true;
-    if (_activeChoice == null) return false;
-    return cardChoice != _activeChoice;
+  double _cooldownProgress() {
+    const total = 24 * 60 * 60;
+    final remaining = _remaining.inSeconds.clamp(0, total);
+    return remaining / total;
   }
 
-  // =========================================================
-  // BADGE LOGIC
-  // =========================================================
-  String? _badgeFor(AnalysisChoice cardChoice) {
-    if (cardChoice != AnalysisChoice.appeal) return null;
-    return "${_used.clamp(0, kLimit)} / $kLimit";
+  void _openSettings() {
+    HapticFeedback.selectionClick();
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const SettingsFreeScreen()),
+    );
   }
 
-  // =========================================================
-  // ACCENT HELPER
-  // =========================================================
-  Color _accentFor(AnalysisChoice c) =>
-      c == AnalysisChoice.psl ? accentPSL : accentAppeal;
+  void _openPslFlow() {
+    if (_isLocked) {
+      HapticFeedback.mediumImpact();
+      return;
+    }
 
-  Color _accentForSoft(AnalysisChoice c) =>
-      c == AnalysisChoice.psl ? accentPSLSoft : accentAppealSoft;
-
-  // =========================================================
-  // CORE FLOW
-  // =========================================================
-  Future<void> _onTap(AnalysisChoice choice) async {
     HapticFeedback.lightImpact();
 
-    print('');
-    print('👆 TAP → $choice');
-    print('STATE BEFORE → used=$_used cooldown=$_cooldownEndsAt');
-
-    if (_used >= kLimit) {
-      print('🔒 HARD LOCK → BLOCK');
-      return;
-    }
-
-    if (!_cooldownActive) {
-      final ends = DateTime.now().add(kCooldown);
-
-      setState(() {
-        _activeChoice = choice;
-        _cooldownEndsAt = ends;
-      });
-
-      await _persist();
-      print('🕒 COOLDOWN STARTED → $_cooldownEndsAt');
-    }
-
-    if (choice == AnalysisChoice.psl) {
-      print('➡️ PUSH PSL FLOW');
-
-      final bool? success = await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const PslPreparationScreen(),
-        ),
-      );
-
-      print('⬅️ RETURNED PSL → success=$success');
-
-      if (success == true && mounted) {
-        setState(() {
-          _used = (_used + 1).clamp(0, kLimit);
-        });
-
-        await _persist();
-        print('✅ PSL SUCCESS → used=$_used');
-      }
-
-      return;
-    }
-
-    print('➡️ PUSH APPEAL PREPARATION');
-
-    final File? imageFile = await Navigator.push<File?>(
+    Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => AppealFreePreparationScreen(
-          guestToken: guestToken,
-        ),
-      ),
-    );
-
-    print('⬅️ RETURNED PREP → file=$imageFile');
-
-    if (imageFile == null || !mounted) {
-      print('❌ APPEAL CANCELLED');
-      return;
-    }
-
-    print('➡️ PUSH APPEAL LOADING');
-
-    final bool? success = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => AnalyzeAppealLoadingScreen(
-          imageFile: imageFile,
-          onFinished: (_) {},
-          onError: (_) {},
-        ),
-      ),
-    );
-
-    print('⬅️ RETURNED APPEAL LOADING → success=$success');
+      MaterialPageRoute(builder: (_) => const PslEliteGateScreen()),
+    ).then((_) {
+      if (mounted) _hydrate();
+    });
   }
 
-  // =========================================================
-  // TIME FORMAT
-  // =========================================================
-  String _formatRemaining(Duration d) {
-    final totalSeconds = d.inSeconds.clamp(0, 999999999);
-    final hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
-    final minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
-    final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
-    return "$hours:$minutes:$seconds";
-  }
-
-  // =========================================================
-  // UI
-  // =========================================================
   @override
-Widget build(BuildContext context) {
-  if (!_bootstrapped) {
-    return const Scaffold(
-      backgroundColor: bg,
-      body: SafeArea(child: SizedBox.expand()),
-    );
-  }
+  Widget build(BuildContext context) {
+    if (!_bootstrapped) {
+      return const Scaffold(
+        backgroundColor: bg,
+        body: SizedBox.expand(),
+      );
+    }
 
-  return Scaffold(
-    backgroundColor: bg,
-    body: Stack(
-      children: [
-        Positioned.fill(
-          child: AnimatedBuilder(
-            animation: _ambient,
-            builder: (context, _) {
-              return CustomPaint(
-                painter: _AppleStyleBackgroundPainter(
-                  t: _ambient.value,
-                ),
-              );
-            },
-          ),
-        ),
-        Positioned.fill(
-          child: IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withOpacity(0.02),
-                    Colors.transparent,
-                    Colors.black.withOpacity(0.10),
-                    Colors.black.withOpacity(0.26),
-                  ],
-                ),
+    final media = MediaQuery.of(context);
+    final h = media.size.height;
+    final compact = h < 720;
+    final heroSize = math.min(media.size.width * 0.78, compact ? 270.0 : 320.0);
+
+    return MediaQuery(
+      data: media.copyWith(textScaler: const TextScaler.linear(1.0)),
+      child: Scaffold(
+        backgroundColor: bg,
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: AnimatedBuilder(
+                animation: _ambient,
+                builder: (_, __) {
+                  return CustomPaint(
+                    painter: _BackgroundPainter(t: _ambient.value),
+                  );
+                },
               ),
             ),
-          ),
-        ),
-        SafeArea(
-          child: AnimatedBuilder(
-            animation: _intro,
-            builder: (context, _) {
-              return Opacity(
-                opacity: _fadeIn.value,
-                child: Transform.translate(
-                  offset: Offset(0, _slideIn.value),
+            SafeArea(
+              child: FadeTransition(
+                opacity: _fade,
+                child: AnimatedBuilder(
+                  animation: _slide,
+                  builder: (_, child) {
+                    return Transform.translate(
+                      offset: Offset(0, _slide.value),
+                      child: child,
+                    );
+                  },
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(24, 18, 24, 120),
+                    physics: const BouncingScrollPhysics(),
+                    padding: EdgeInsets.fromLTRB(
+                      22,
+                      compact ? 14 : 18,
+                      22,
+                      28 + media.padding.bottom,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _TopBar(
-                          onSettingsTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const SettingsFreeScreen(),
-                            ),
-                          ),
+                        _topBar(),
+                        SizedBox(height: compact ? 26 : 34),
+                        _HeroChamber(
+                          size: heroSize,
+                          locked: _isLocked,
+                          scan: _scan,
+                          orbit: _orbit,
+                          pulse: _pulse,
                         ),
-                        const SizedBox(height: 34),
-                        const _HeroBlock(),
-                        const SizedBox(height: 28),
-                        _AnalysisCard(
-                          title: "PSL",
-                          subtitle: "Structural score",
-                          micro: "Bone geometry and proportions",
-                          accent: accentPSL,
-                          accentSoft: accentPSLSoft,
-                          locked: _isCardVisuallyLocked(AnalysisChoice.psl),
-                          badge: _badgeFor(AnalysisChoice.psl),
-                          icon: Icons.architecture_rounded,
-                          onTap: () => _onTap(AnalysisChoice.psl),
+                        SizedBox(height: compact ? 28 : 34),
+                        _headline(),
+                        const SizedBox(height: 18),
+                        _ScanActionCard(
+                          locked: _isLocked,
+                          used: _isLocked ? _used.clamp(1, _limit) : 0,
+                          limit: _limit,
+                          pulse: _pulse,
+                          onTap: _openPslFlow,
                         ),
-                        const SizedBox(height: 16),
-                        _AnalysisCard(
-                          title: "Appeal",
-                          subtitle: "Perceived attractiveness",
-                          micro: "How your face reads today",
-                          accent: accentAppeal,
-                          accentSoft: accentAppealSoft,
-                          locked:
-                              _isCardVisuallyLocked(AnalysisChoice.appeal),
-                          badge: _badgeFor(AnalysisChoice.appeal),
-                          icon: Icons.visibility_rounded,
-                          onTap: () => _onTap(AnalysisChoice.appeal),
-                        ),
-                        if (_cooldownActive) ...[
-                          const SizedBox(height: 36),
-                          const _CooldownDivider(),
+                        if (_isLocked) ...[
                           const SizedBox(height: 22),
-                          Center(
-                            child: _CooldownRing(
-                              accent: _activeChoice == null
-                                  ? accentPSL
-                                  : _accentFor(_activeChoice!),
-                              accentSoft: _activeChoice == null
-                                  ? accentPSLSoft
-                                  : _accentForSoft(_activeChoice!),
-                              remaining: _remaining,
-                              total: kCooldown,
-                              label: "Next choice available in",
-                              timeText: _formatRemaining(_remaining),
-                              glow: _ringGlow,
-                            ),
+                          _CooldownStrip(
+                            progress: _cooldownProgress(),
+                            timeText: _formatRemaining(_remaining),
+                            pulse: _pulse,
                           ),
                         ],
-                        const SizedBox(height: 26),
-                        const _FootNote(),
+                        const SizedBox(height: 18),
+                        _footer(),
                       ],
                     ),
                   ),
                 ),
-              );
-            },
-          ),
+              ),
+            ),
+          ],
         ),
-      ],
-    ),
-  );
-}}
+      ),
+    );
+  }
 
-// =========================================================
-// TOP BAR
-// =========================================================
-class _TopBar extends StatelessWidget {
-  final VoidCallback onSettingsTap;
-
-  const _TopBar({
-    required this.onSettingsTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _topBar() {
     return Row(
       children: [
         const Text(
           "FacePeak",
           style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w800,
+            color: ink,
             fontSize: 16,
-            letterSpacing: 0.2,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.25,
           ),
         ),
         const Spacer(),
-        const _FreeModePill(),
-        const SizedBox(width: 10),
-        _TopIconButton(
-          icon: Icons.settings_rounded,
-          onTap: onSettingsTap,
-        ),
-      ],
-    );
-  }
-}
-
-class _TopIconButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-
-  const _TopIconButton({
-    required this.icon,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () {
-          HapticFeedback.selectionClick();
-          onTap();
-        },
-        child: Ink(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            color: Colors.white.withOpacity(0.045),
-            border: Border.all(color: Colors.white.withOpacity(0.06)),
-          ),
-          child: Icon(
-            icon,
-            size: 21,
-            color: _HomeFreeScreenState.muted,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// =========================================================
-// HERO
-// =========================================================
-class _HeroBlock extends StatelessWidget {
-  const _HeroBlock();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          "Analyze your face",
-          style: TextStyle(
-            color: _HomeFreeScreenState.text,
-            fontSize: 34,
-            fontWeight: FontWeight.w900,
-            height: 1.03,
-            letterSpacing: -0.8,
-          ),
-        ),
-        SizedBox(height: 10),
-        Text(
-          "Select what you want to measure.",
-          style: TextStyle(
-            color: _HomeFreeScreenState.muted,
-            fontSize: 15,
-            fontWeight: FontWeight.w500,
-            height: 1.25,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// =========================================================
-// FREE MODE PILL
-// =========================================================
-class _FreeModePill extends StatelessWidget {
-  const _FreeModePill();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.045),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
-      ),
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.lock_clock_rounded,
-            size: 13,
-            color: _HomeFreeScreenState.accentPSL,
-          ),
-          SizedBox(width: 6),
-          Text(
-            "FREE MODE",
-            style: TextStyle(
-              color: _HomeFreeScreenState.accentPSL,
-              fontWeight: FontWeight.w800,
-              fontSize: 11.5,
-              letterSpacing: 0.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// =========================================================
-// COOLDOWN DIVIDER
-// =========================================================
-class _CooldownDivider extends StatelessWidget {
-  const _CooldownDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Container(
-            height: 1,
-            color: Colors.white.withOpacity(0.06),
-          ),
-        ),
-        const SizedBox(width: 12),
-        const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.hourglass_top_rounded,
-              size: 14,
-              color: _HomeFreeScreenState.micro,
-            ),
-            SizedBox(width: 6),
-            Text(
-              "NEXT ANALYSIS",
-              style: TextStyle(
-                color: _HomeFreeScreenState.micro,
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.1,
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(999),
+                color: Colors.white.withOpacity(0.055),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.075),
+                ),
+              ),
+              child: const Text(
+                "FREE",
+                style: TextStyle(
+                  color: violet3,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.9,
+                ),
               ),
             ),
-          ],
+          ),
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Container(
-            height: 1,
-            color: Colors.white.withOpacity(0.06),
+        const SizedBox(width: 10),
+        GestureDetector(
+          onTap: _openSettings,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+              child: Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  color: Colors.white.withOpacity(0.055),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.075),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.settings_rounded,
+                  color: muted,
+                  size: 20,
+                ),
+              ),
+            ),
           ),
         ),
       ],
     );
   }
+
+  Widget _headline() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "PSL Scan",
+          style: TextStyle(
+            color: ink,
+            fontSize: 40,
+            fontWeight: FontWeight.w900,
+            height: 0.98,
+            letterSpacing: -1.25,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          _isLocked ? "Result saved" : "Structural analysis ready",
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.52),
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.1,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _footer() {
+    return Center(
+      child: Text(
+        "Clear face • neutral angle • no filters",
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: muted.withOpacity(0.76),
+          fontSize: 12,
+          height: 1.3,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.1,
+        ),
+      ),
+    );
+  }
 }
 
-// =========================================================
-// ANALYSIS CARD
-// =========================================================
-class _AnalysisCard extends StatefulWidget {
-  final String title;
-  final String subtitle;
-  final String micro;
-  final Color accent;
-  final Color accentSoft;
-  final String? badge;
+class _HeroChamber extends StatelessWidget {
+  final double size;
   final bool locked;
-  final VoidCallback onTap;
-  final IconData icon;
+  final Animation<double> scan;
+  final Animation<double> orbit;
+  final Animation<double> pulse;
 
-  const _AnalysisCard({
-    required this.title,
-    required this.subtitle,
-    required this.micro,
-    required this.accent,
-    required this.accentSoft,
+  const _HeroChamber({
+    required this.size,
     required this.locked,
-    required this.onTap,
-    required this.icon,
-    this.badge,
+    required this.scan,
+    required this.orbit,
+    required this.pulse,
   });
 
   @override
-  State<_AnalysisCard> createState() => _AnalysisCardState();
+  Widget build(BuildContext context) {
+    return Center(
+      child: AnimatedBuilder(
+        animation: Listenable.merge([scan, orbit, pulse]),
+        builder: (_, __) {
+          final p = pulse.value;
+          final scanY = size * (0.24 + scan.value * 0.52);
+
+          return SizedBox(
+            width: size,
+            height: size,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: size * 0.92,
+                  height: size * 0.92,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: _HomeFreeScreenState.violet.withOpacity(
+                          locked ? 0.10 : 0.22 + p * 0.08,
+                        ),
+                        blurRadius: 90,
+                        spreadRadius: 8,
+                      ),
+                      BoxShadow(
+                        color: _HomeFreeScreenState.gold.withOpacity(0.055),
+                        blurRadius: 110,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                ),
+                RotationTransition(
+                  turns: orbit,
+                  child: CustomPaint(
+                    size: Size(size * 0.86, size * 0.86),
+                    painter: _OrbitPainter(
+                      color: _HomeFreeScreenState.violet2.withOpacity(0.62),
+                      bright: _HomeFreeScreenState.violet3.withOpacity(0.95),
+                    ),
+                  ),
+                ),
+                RotationTransition(
+                  turns: Tween<double>(begin: 1, end: 0).animate(orbit),
+                  child: CustomPaint(
+                    size: Size(size * 0.68, size * 0.68),
+                    painter: _InnerOrbitPainter(
+                      color: _HomeFreeScreenState.gold.withOpacity(0.34),
+                    ),
+                  ),
+                ),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(size * 0.155),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                    child: Container(
+                      width: size * 0.63,
+                      height: size * 0.63,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(size * 0.155),
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Colors.white.withOpacity(0.105),
+                            _HomeFreeScreenState.violet.withOpacity(0.075),
+                            Colors.black.withOpacity(0.18),
+                          ],
+                        ),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.105),
+                          width: 1.2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.38),
+                            blurRadius: 34,
+                            offset: const Offset(0, 18),
+                          ),
+                        ],
+                      ),
+                      child: Stack(
+                        children: [
+                          Positioned.fill(
+                            child: CustomPaint(
+                              painter: _ChamberGridPainter(
+                                color: Colors.white.withOpacity(0.045),
+                                accent: _HomeFreeScreenState.violet3
+                                    .withOpacity(0.13),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            top: scanY * 0.63 - 36,
+                            child: Container(
+                              height: 72,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.transparent,
+                                    _HomeFreeScreenState.violet2
+                                        .withOpacity(0.035),
+                                    _HomeFreeScreenState.violet3
+                                        .withOpacity(0.125),
+                                    _HomeFreeScreenState.gold
+                                        .withOpacity(0.055),
+                                    Colors.transparent,
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            left: 22,
+                            right: 22,
+                            top: scanY * 0.63,
+                            child: Container(
+                              height: 2.4,
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    Colors.transparent,
+                                    _HomeFreeScreenState.violet2,
+                                    _HomeFreeScreenState.violet3,
+                                    _HomeFreeScreenState.gold,
+                                    _HomeFreeScreenState.violet3,
+                                    Colors.transparent,
+                                  ],
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: _HomeFreeScreenState.violet2
+                                        .withOpacity(0.55),
+                                    blurRadius: 16,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          Center(
+                            child: AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 220),
+                              child: Icon(
+                                locked
+                                    ? Icons.lock_rounded
+                                    : Icons.face_retouching_natural_rounded,
+                                key: ValueKey(locked),
+                                color: _HomeFreeScreenState.violet3,
+                                size: size * 0.17,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  bottom: size * 0.06,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      color: Colors.black.withOpacity(0.34),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.08),
+                      ),
+                    ),
+                    child: Text(
+                      locked ? "LOCKED" : "READY",
+                      style: const TextStyle(
+                        color: _HomeFreeScreenState.violet3,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.25,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
 }
 
-class _AnalysisCardState extends State<_AnalysisCard>
+class _ScanActionCard extends StatefulWidget {
+  final bool locked;
+  final int used;
+  final int limit;
+  final Animation<double> pulse;
+  final VoidCallback onTap;
+
+  const _ScanActionCard({
+    required this.locked,
+    required this.used,
+    required this.limit,
+    required this.pulse,
+    required this.onTap,
+  });
+
+  @override
+  State<_ScanActionCard> createState() => _ScanActionCardState();
+}
+
+class _ScanActionCardState extends State<_ScanActionCard>
     with SingleTickerProviderStateMixin {
   late final AnimationController _press;
 
@@ -767,7 +674,7 @@ class _AnalysisCardState extends State<_AnalysisCard>
     super.initState();
     _press = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 90),
+      duration: const Duration(milliseconds: 110),
       lowerBound: 0,
       upperBound: 1,
     );
@@ -780,374 +687,443 @@ class _AnalysisCardState extends State<_AnalysisCard>
   }
 
   @override
-Widget build(BuildContext context) {
-  final trailing =
-      widget.locked ? Icons.lock_rounded : Icons.chevron_right_rounded;
+  Widget build(BuildContext context) {
+    return Listener(
+      onPointerDown: (_) {
+        if (!widget.locked) _press.forward();
+      },
+      onPointerUp: (_) => _press.reverse(),
+      onPointerCancel: (_) => _press.reverse(),
+      child: AnimatedBuilder(
+        animation: Listenable.merge([widget.pulse, _press]),
+        builder: (_, __) {
+          final p = widget.pulse.value;
+          final scale = 1 - (_press.value * 0.018);
 
-  return Listener(
-    onPointerDown: (_) => _press.forward(),
-    onPointerUp: (_) => _press.reverse(),
-    onPointerCancel: (_) => _press.reverse(),
-    child: AnimatedBuilder(
-      animation: _press,
-      builder: (context, _) {
-        final scale = 1 - (_press.value * 0.014);
-
-        return Transform.scale(
-          scale: scale,
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(_HomeFreeScreenState.rCard),
-              onTap: widget.onTap,
-              child: Ink(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  borderRadius:
-                      BorderRadius.circular(_HomeFreeScreenState.rCard),
-
-                  /// NEW BACKGROUND (više kontrasta)
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      _HomeFreeScreenState.card.withOpacity(0.98),
-                      _HomeFreeScreenState.card.withOpacity(0.88),
-                    ],
-                  ),
-
-                  /// JAČI BORDER
-                  border: Border.all(
-                    color: widget.accent.withOpacity(0.55),
-                    width: 1.5,
-                  ),
-
-                  /// BRUTALNIJI GLOW
-                  boxShadow: [
-                    BoxShadow(
-                      color: widget.accent.withOpacity(
-                        0.35 + (_press.value * 0.45),
-                      ),
-                      blurRadius: 60,
-                      spreadRadius: 4,
-                      offset: const Offset(0, 20),
-                    ),
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.55),
-                      blurRadius: 36,
-                      offset: const Offset(0, 16),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 50,
-                      height: 50,
+          return IgnorePointer(
+            ignoring: widget.locked,
+            child: Transform.scale(
+              scale: scale,
+              child: GestureDetector(
+                onTap: widget.onTap,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(28),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(18),
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
-                        color: widget.accent.withOpacity(0.14),
-                        border: Border.all(
-                          color: widget.accent.withOpacity(0.30),
-                        ),
-                      ),
-                      child: Icon(
-                        widget.icon,
-                        color: widget.accentSoft,
-                        size: 24,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Opacity(
-                        opacity: widget.locked ? 0.58 : 1,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Text(
-                                  widget.title,
-                                  style: const TextStyle(
-                                    color: _HomeFreeScreenState.text,
-                                    fontSize: 21,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: -0.2,
-                                  ),
-                                ),
-                                if (widget.locked) ...[
-                                  const SizedBox(width: 7),
-                                  Icon(
-                                    Icons.lock_rounded,
-                                    size: 15,
-                                    color: Colors.white.withOpacity(0.50),
-                                  ),
-                                ],
-                              ],
+                        borderRadius: BorderRadius.circular(28),
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Colors.white.withOpacity(
+                              widget.locked ? 0.045 : 0.075,
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              widget.subtitle,
-                              style: TextStyle(
-                                color: widget.accent,
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w800,
+                            _HomeFreeScreenState.violet.withOpacity(
+                              widget.locked ? 0.025 : 0.08,
+                            ),
+                            Colors.black.withOpacity(0.18),
+                          ],
+                        ),
+                        border: Border.all(
+                          color: widget.locked
+                              ? Colors.white.withOpacity(0.075)
+                              : _HomeFreeScreenState.violet2
+                                  .withOpacity(0.32),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _HomeFreeScreenState.violet.withOpacity(
+                              widget.locked ? 0.07 : 0.18 + p * 0.08,
+                            ),
+                            blurRadius: widget.locked ? 24 : 48,
+                            spreadRadius: widget.locked ? 0 : 1,
+                            offset: const Offset(0, 18),
+                          ),
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.38),
+                            blurRadius: 26,
+                            offset: const Offset(0, 14),
+                          ),
+                        ],
+                      ),
+                      child: Opacity(
+                        opacity: widget.locked ? 0.60 : 1,
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(18),
+                                gradient: const LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    _HomeFreeScreenState.violet3,
+                                    _HomeFreeScreenState.violet2,
+                                  ],
+                                ),
+                              ),
+                              child: Icon(
+                                widget.locked
+                                    ? Icons.lock_rounded
+                                    : Icons.arrow_outward_rounded,
+                                color: Colors.black,
+                                size: 25,
                               ),
                             ),
-                            const SizedBox(height: 3),
-                            Text(
-                              widget.micro,
-                              style: TextStyle(
-                                color:
-                                    _HomeFreeScreenState.micro.withOpacity(0.96),
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w500,
+                            const SizedBox(width: 15),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    widget.locked ? "Scan locked" : "Scan photo",
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: _HomeFreeScreenState.ink,
+                                      fontSize: 19.5,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: -0.35,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    widget.locked
+                                        ? "Free result saved"
+                                        : "PSL • percentile • tier",
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: _HomeFreeScreenState.muted
+                                          .withOpacity(0.9),
+                                      fontSize: 12.8,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 7,
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(999),
+                                color: Colors.black.withOpacity(0.22),
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.08),
+                                ),
+                              ),
+                              child: Text(
+                                widget.locked
+                                    ? "${widget.used}/${widget.limit}"
+                                    : "0/${widget.limit}",
+                                style: const TextStyle(
+                                  color: _HomeFreeScreenState.violet3,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w900,
+                                ),
                               ),
                             ),
                           ],
                         ),
                       ),
                     ),
-                    if (widget.badge != null)
-                      Container(
-                        margin: const EdgeInsets.only(right: 10),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(999),
-                          color: widget.accent.withOpacity(0.18),
-                        ),
-                        child: Text(
-                          widget.badge!,
-                          style: TextStyle(
-                            color: widget.accentSoft,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 11.5,
-                          ),
-                        ),
-                      ),
-                    Icon(
-                      trailing,
-                      size: 24,
-                      color: Colors.white.withOpacity(
-                        widget.locked ? 0.52 : 0.92,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
-          ),
-        );
-      },
-    ),
-  );
-}}
-// =========================================================
-// COOLDOWN RING
-// =========================================================
-class _CooldownRing extends StatelessWidget {
-  final Color accent;
-  final Color accentSoft;
-  final Duration remaining;
-  final Duration total;
-  final String label;
-  final String timeText;
-  final Animation<double> glow;
-
-  const _CooldownRing({
-    required this.accent,
-    required this.accentSoft,
-    required this.remaining,
-    required this.total,
-    required this.label,
-    required this.timeText,
-    required this.glow,
-  });
-
-  double get _progress {
-    final t = total.inSeconds == 0 ? 1 : total.inSeconds;
-    final r = remaining.inSeconds.clamp(0, t);
-    return r / t;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: glow,
-      builder: (context, _) {
-        final pulse = glow.value;
-        return Column(
-          children: [
-            SizedBox(
-              width: 156,
-              height: 156,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Container(
-                    width: 156,
-                    height: 156,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: accent.withOpacity(0.06 + pulse * 0.06),
-                          blurRadius: 24,
-                          spreadRadius: 1,
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(
-                    width: 142,
-                    height: 142,
-                    child: CircularProgressIndicator(
-                      value: _progress,
-                      strokeWidth: 7,
-                      backgroundColor: Colors.white.withOpacity(0.06),
-                      valueColor: AlwaysStoppedAnimation<Color>(accent),
-                    ),
-                  ),
-                  Container(
-                    width: 108,
-                    height: 108,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withOpacity(0.03),
-                      border: Border.all(color: Colors.white.withOpacity(0.05)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              timeText,
-              style: const TextStyle(
-                color: _HomeFreeScreenState.text,
-                fontSize: 25,
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.2,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: _HomeFreeScreenState.micro.withOpacity(0.95),
-                fontSize: 12.5,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-// =========================================================
-// FOOT
-// =========================================================
-class _FootNote extends StatelessWidget {
-  const _FootNote();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        "Use a neutral face and clear lighting for the most accurate result.",
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          color: _HomeFreeScreenState.micro.withOpacity(0.90),
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-          height: 1.35,
-        ),
+          );
+        },
       ),
     );
   }
 }
 
-// =========================================================
-// BACKGROUND
-// =========================================================
-class _AppleStyleBackgroundPainter extends CustomPainter {
+class _CooldownStrip extends StatelessWidget {
+  final double progress;
+  final String timeText;
+  final Animation<double> pulse;
+
+  const _CooldownStrip({
+    required this.progress,
+    required this.timeText,
+    required this.pulse,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: pulse,
+      builder: (_, __) {
+        final p = pulse.value;
+
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(24),
+                color: Colors.white.withOpacity(0.045),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.07),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: _HomeFreeScreenState.violet.withOpacity(
+                      0.08 + p * 0.04,
+                    ),
+                    blurRadius: 28,
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 46,
+                    height: 46,
+                    child: CircularProgressIndicator(
+                      value: progress,
+                      strokeWidth: 4.2,
+                      backgroundColor: Colors.white.withOpacity(0.07),
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        _HomeFreeScreenState.violet2,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "Next scan",
+                          style: TextStyle(
+                            color: _HomeFreeScreenState.ink,
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.15,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          "Unlock timer active",
+                          style: TextStyle(
+                            color: _HomeFreeScreenState.muted.withOpacity(0.85),
+                            fontSize: 12.2,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    timeText,
+                    style: const TextStyle(
+                      color: _HomeFreeScreenState.violet3,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _BackgroundPainter extends CustomPainter {
   final double t;
 
-  _AppleStyleBackgroundPainter({
-    required this.t,
+  _BackgroundPainter({required this.t});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            _HomeFreeScreenState.bg,
+            _HomeFreeScreenState.bg2,
+            _HomeFreeScreenState.bg,
+          ],
+        ).createShader(rect),
+    );
+
+    final dx = math.sin(t * math.pi * 2) * 28;
+    final dy = math.cos(t * math.pi * 2) * 18;
+
+    final c1 = Offset(size.width * 0.74 + dx, size.height * 0.14 + dy);
+    final c2 = Offset(size.width * 0.20 - dx * 0.35, size.height * 0.82);
+
+    canvas.drawCircle(
+      c1,
+      size.width * 0.72,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            _HomeFreeScreenState.violet.withOpacity(0.18),
+            _HomeFreeScreenState.violet.withOpacity(0.048),
+            Colors.transparent,
+          ],
+        ).createShader(Rect.fromCircle(center: c1, radius: size.width * 0.72)),
+    );
+
+    canvas.drawCircle(
+      c2,
+      size.width * 0.58,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            _HomeFreeScreenState.gold.withOpacity(0.070),
+            Colors.transparent,
+          ],
+        ).createShader(Rect.fromCircle(center: c2, radius: size.width * 0.58)),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _BackgroundPainter oldDelegate) {
+    return oldDelegate.t != t;
+  }
+}
+
+class _OrbitPainter extends CustomPainter {
+  final Color color;
+  final Color bright;
+
+  const _OrbitPainter({
+    required this.color,
+    required this.bright,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
 
-    final base = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          Color(0xFF06070B),
-          Color(0xFF070910),
-          Color(0xFF06070B),
-        ],
-      ).createShader(rect);
+    final soft = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.35
+      ..strokeCap = StrokeCap.round;
 
-    canvas.drawRect(rect, base);
+    final strong = Paint()
+      ..color = bright
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.4
+      ..strokeCap = StrokeCap.round;
 
-    final dx = math.sin(t * math.pi * 2) * 18;
-    final dy = math.cos(t * math.pi * 2) * 12;
+    canvas.drawArc(rect.deflate(8), -math.pi / 2.3, math.pi * 0.30, false, strong);
+    canvas.drawArc(rect.deflate(16), math.pi * 0.18, math.pi * 0.23, false, soft);
+    canvas.drawArc(rect.deflate(18), math.pi * 1.08, math.pi * 0.28, false, soft);
+    canvas.drawArc(rect.deflate(28), math.pi * 0.72, math.pi * 0.16, false, strong);
+  }
 
-    final glowTop = Paint()
-      ..shader = const RadialGradient(
-        colors: [
-          Color(0x3392A5FF),
-          Color(0x1492A5FF),
-          Colors.transparent,
-        ],
-        stops: [0.0, 0.34, 0.82],
-      ).createShader(
-        Rect.fromCircle(
-          center: Offset(size.width * 0.78 + dx, size.height * 0.10 + dy),
-          radius: size.width * 0.72,
-        ),
-      );
+  @override
+  bool shouldRepaint(covariant _OrbitPainter oldDelegate) {
+    return oldDelegate.color != color || oldDelegate.bright != bright;
+  }
+}
 
-    canvas.drawCircle(
-      Offset(size.width * 0.78 + dx, size.height * 0.10 + dy),
-      size.width * 0.72,
-      glowTop,
+class _InnerOrbitPainter extends CustomPainter {
+  final Color color;
+
+  const _InnerOrbitPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+
+    final p = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawArc(rect.deflate(10), math.pi * 0.10, math.pi * 0.18, false, p);
+    canvas.drawArc(rect.deflate(18), math.pi * 0.92, math.pi * 0.16, false, p);
+  }
+
+  @override
+  bool shouldRepaint(covariant _InnerOrbitPainter oldDelegate) {
+    return oldDelegate.color != color;
+  }
+}
+
+class _ChamberGridPainter extends CustomPainter {
+  final Color color;
+  final Color accent;
+
+  const _ChamberGridPainter({
+    required this.color,
+    required this.accent,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final thin = Paint()
+      ..color = color
+      ..strokeWidth = 0.75;
+
+    canvas.drawLine(Offset(size.width / 2, 0), Offset(size.width / 2, size.height), thin);
+    canvas.drawLine(Offset(0, size.height / 2), Offset(size.width, size.height / 2), thin);
+
+    final thirds = Paint()
+      ..color = color.withOpacity(0.55)
+      ..strokeWidth = 0.55;
+
+    canvas.drawLine(Offset(size.width / 3, 0), Offset(size.width / 3, size.height), thirds);
+    canvas.drawLine(Offset((size.width / 3) * 2, 0), Offset((size.width / 3) * 2, size.height), thirds);
+
+    final corner = Paint()
+      ..color = accent
+      ..strokeWidth = 1.05
+      ..strokeCap = StrokeCap.round;
+
+    const l = 18.0;
+
+    canvas.drawLine(Offset(0, 0), const Offset(l, 0), corner);
+    canvas.drawLine(Offset(0, 0), const Offset(0, l), corner);
+
+    canvas.drawLine(Offset(size.width, 0), Offset(size.width - l, 0), corner);
+    canvas.drawLine(Offset(size.width, 0), Offset(size.width, l), corner);
+
+    canvas.drawLine(Offset(0, size.height), Offset(l, size.height), corner);
+    canvas.drawLine(Offset(0, size.height), Offset(0, size.height - l), corner);
+
+    canvas.drawLine(
+      Offset(size.width, size.height),
+      Offset(size.width - l, size.height),
+      corner,
     );
-
-    final glowBottom = Paint()
-      ..shader = const RadialGradient(
-        colors: [
-          Color(0x10FFC85A),
-          Colors.transparent,
-        ],
-      ).createShader(
-        Rect.fromCircle(
-          center: Offset(size.width * 0.18 - dx * 0.4, size.height * 0.88),
-          radius: size.width * 0.55,
-        ),
-      );
-
-    canvas.drawCircle(
-      Offset(size.width * 0.18 - dx * 0.4, size.height * 0.88),
-      size.width * 0.55,
-      glowBottom,
+    canvas.drawLine(
+      Offset(size.width, size.height),
+      Offset(size.width, size.height - l),
+      corner,
     );
   }
 
   @override
-  bool shouldRepaint(covariant _AppleStyleBackgroundPainter oldDelegate) {
-    return oldDelegate.t != t;
+  bool shouldRepaint(covariant _ChamberGridPainter oldDelegate) {
+    return oldDelegate.color != color || oldDelegate.accent != accent;
   }
 }
-
-// tiny helper to silence analyzer for fire-and-forget futures
-void unawaited(Future<void> f) {}

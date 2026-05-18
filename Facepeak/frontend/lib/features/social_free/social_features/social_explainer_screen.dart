@@ -63,262 +63,281 @@ class _SocialExplainerScreenState extends State<SocialExplainerScreen>
   }
 
   @override
-  Widget build(BuildContext context) {
-    final reveal = CurvedAnimation(
-      parent: _screen,
-      curve: Curves.easeOutCubic,
-    );
+Widget build(BuildContext context) {
+  final reveal = CurvedAnimation(
+    parent: _screen,
+    curve: Curves.easeOutCubic,
+  );
 
-    return Scaffold(
-      backgroundColor: bg,
-      body: SafeArea(
-        child: AnimatedBuilder(
-          animation: Listenable.merge([_screen, _heroGlow, _searchPulse]),
-          builder: (context, _) {
-            final heroGlow = _heroGlow.value;
+  final media = MediaQuery.of(context);
+  final bottom = media.padding.bottom;
 
-            return Opacity(
-              opacity: reveal.value,
-              child: Transform.translate(
-                offset: Offset(0, 14 * (1 - reveal.value)),
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: RadialGradient(
-                              center: const Alignment(0, -0.16),
-                              radius: 0.95,
-                              colors: [
-                                gold2.withOpacity(0.08 + heroGlow * 0.03),
-                                Colors.transparent,
-                              ],
-                            ),
+  return Scaffold(
+    backgroundColor: bg,
+    body: SafeArea(
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_screen, _heroGlow, _searchPulse]),
+        builder: (context, _) {
+          final heroGlow = _heroGlow.value;
+
+          return Opacity(
+            opacity: reveal.value,
+            child: Transform.translate(
+              offset: Offset(0, 14 * (1 - reveal.value)),
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: RadialGradient(
+                            center: const Alignment(0, -0.16),
+                            radius: 0.95,
+                            colors: [
+                              gold2.withOpacity(0.08 + heroGlow * 0.03),
+                              Colors.transparent,
+                            ],
                           ),
                         ),
                       ),
                     ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 10, 18, 16),
-                      child: Column(
-                        children: [
-                          Row(
+                  ),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      return SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(
+                          parent: BouncingScrollPhysics(),
+                        ),
+                        padding: EdgeInsets.fromLTRB(
+                          18,
+                          10,
+                          18,
+                          20 + bottom,
+                        ),
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minHeight: constraints.maxHeight,
+                          ),
+                          child: Column(
                             children: [
-                              _topButton(
-                                icon: Icons.arrow_back_ios_new_rounded,
-                                onTap: _closeNotHelpful,
+                              Row(
+                                children: [
+                                  _topButton(
+                                    icon: Icons.arrow_back_ios_new_rounded,
+                                    onTap: _closeNotHelpful,
+                                  ),
+                                  const Spacer(),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 7,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(999),
+                                      color: Colors.white.withOpacity(0.022),
+                                      border: Border.all(
+                                        color: gold2.withOpacity(0.14),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      "HOW SOCIAL WORKS",
+                                      style: TextStyle(
+                                        color: gold3,
+                                        fontSize: 11.2,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 0.8,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const Spacer(),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 7,
-                                ),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(999),
-                                  color: Colors.white.withOpacity(0.022),
-                                  border: Border.all(
-                                    color: gold2.withOpacity(0.14),
+                              const SizedBox(height: 16),
+                              _heroOrb(heroGlow),
+                              const SizedBox(height: 14),
+                              ShaderMask(
+                                shaderCallback: (bounds) =>
+                                    const LinearGradient(
+                                  colors: [gold2, gold3, gold4],
+                                ).createShader(bounds),
+                                child: const Text(
+                                  "Everything starts with search",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.white,
+                                    height: 1.0,
+                                    letterSpacing: -0.5,
                                   ),
                                 ),
-                                child: Text(
-                                  "HOW SOCIAL WORKS",
+                              ),
+                              const SizedBox(height: 8),
+                              const Text(
+                                "Get attention. Get matches. Get noticed.",
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 12.9,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white70,
+                                  height: 1.12,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              _SearchFeatureCard(
+                                pulse: _searchPulse,
+                              ),
+                              const SizedBox(height: 14),
+                              SizedBox(
+                                height: 260,
+                                child: Column(
+                                  children: const [
+                                    Expanded(
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: _MiniFeatureCard(
+                                              icon: Icons.favorite,
+                                              iconColor: purple,
+                                              title: "Matches",
+                                              subtitle: "People who like you",
+                                            ),
+                                          ),
+                                          SizedBox(width: 12),
+                                          Expanded(
+                                            child: _MiniFeatureCard(
+                                              icon:
+                                                  Icons.remove_red_eye_outlined,
+                                              title: "Profile views",
+                                              subtitle: "Who checked you out",
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    SizedBox(height: 12),
+                                    Expanded(
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: _MiniFeatureCard(
+                                              icon: Icons.edit,
+                                              title: "Your profile",
+                                              subtitle: "Improve your profile",
+                                            ),
+                                          ),
+                                          SizedBox(width: 12),
+                                          Expanded(
+                                            child: _MiniFeatureCard(
+                                              icon: Icons.menu_rounded,
+                                              title: "Settings",
+                                              subtitle:
+                                                  "Preferences & control",
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 11,
+                                ),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(16),
+                                  color: Colors.white.withOpacity(0.024),
+                                  border: Border.all(
+                                    color: gold2.withOpacity(0.10),
+                                  ),
+                                ),
+                                child: const Text(
+                                  "Most matches come from search ✨",
+                                  textAlign: TextAlign.center,
                                   style: TextStyle(
-                                    color: gold3,
-                                    fontSize: 11.2,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 0.8,
+                                    fontSize: 12.2,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                    height: 1.12,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              AnimatedBuilder(
+                                animation: _heroGlow,
+                                builder: (context, _) {
+                                  final glow = _heroGlow.value;
+
+                                  return GestureDetector(
+                                    onTap: _closeHelpful,
+                                    child: Container(
+                                      width: double.infinity,
+                                      height: 56,
+                                      decoration: BoxDecoration(
+                                        borderRadius:
+                                            BorderRadius.circular(18),
+                                        gradient: const LinearGradient(
+                                          colors: [gold2, gold3, gold4],
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: gold2.withOpacity(
+                                              0.22 + glow * 0.08,
+                                            ),
+                                            blurRadius: 18 + glow * 7,
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Center(
+                                        child: Text(
+                                          "CONTINUE",
+                                          style: TextStyle(
+                                            fontSize: 14.1,
+                                            fontWeight: FontWeight.w900,
+                                            color: Colors.black,
+                                            letterSpacing: 0.35,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: 9),
+                              GestureDetector(
+                                onTap: _closeNotHelpful,
+                                child: const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 4),
+                                  child: Text(
+                                    "This was not helpful",
+                                    style: TextStyle(
+                                      fontSize: 12.2,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white54,
+                                      decoration: TextDecoration.underline,
+                                      decorationColor: Colors.white38,
+                                    ),
                                   ),
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 16),
-                          _heroOrb(heroGlow),
-                          const SizedBox(height: 14),
-                          ShaderMask(
-                            shaderCallback: (bounds) => const LinearGradient(
-                              colors: [gold2, gold3, gold4],
-                            ).createShader(bounds),
-                            child: const Text(
-                              "Everything starts with search",
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w900,
-                                color: Colors.white,
-                                height: 1.0,
-                                letterSpacing: -0.5,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            "Get attention. Get matches. Get noticed.",
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 12.9,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white70,
-                              height: 1.12,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Expanded(
-                            child: Column(
-                              children: [
-                                _SearchFeatureCard(
-                                  pulse: _searchPulse,
-                                ),
-                                const SizedBox(height: 14),
-                                const Expanded(
-                                  child: Column(
-                                    children: [
-                                      Expanded(
-                                        child: Row(
-                                          children: [
-                                            Expanded(
-                                              child: _MiniFeatureCard(
-                                                icon: Icons.favorite,
-                                                iconColor: purple,
-                                                title: "Matches",
-                                                subtitle: "People who like you",
-                                              ),
-                                            ),
-                                            SizedBox(width: 12),
-                                            Expanded(
-                                              child: _MiniFeatureCard(
-                                                icon: Icons.remove_red_eye_outlined,
-                                                title: "Profile views",
-                                                subtitle: "Who checked you out",
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      SizedBox(height: 12),
-                                      Expanded(
-                                        child: Row(
-                                          children: [
-                                            Expanded(
-                                              child: _MiniFeatureCard(
-                                                icon: Icons.edit,
-                                                title: "Your profile",
-                                                subtitle: "Improve your profile",
-                                              ),
-                                            ),
-                                            SizedBox(width: 12),
-                                            Expanded(
-                                              child: _MiniFeatureCard(
-                                                icon: Icons.menu_rounded,
-                                                title: "Settings",
-                                                subtitle: "Preferences & control",
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 11,
-                            ),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(16),
-                              color: Colors.white.withOpacity(0.024),
-                              border: Border.all(
-                                color: gold2.withOpacity(0.10),
-                              ),
-                            ),
-                            child: const Text(
-                              "Most matches come from search ✨",
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 12.2,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                                height: 1.12,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          AnimatedBuilder(
-                            animation: _heroGlow,
-                            builder: (context, _) {
-                              final glow = _heroGlow.value;
-
-                              return GestureDetector(
-                                onTap: _closeHelpful,
-                                child: Container(
-                                  width: double.infinity,
-                                  height: 56,
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(18),
-                                    gradient: const LinearGradient(
-                                      colors: [gold2, gold3, gold4],
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: gold2.withOpacity(
-                                          0.22 + glow * 0.08,
-                                        ),
-                                        blurRadius: 18 + glow * 7,
-                                      ),
-                                    ],
-                                  ),
-                                  child: const Center(
-                                    child: Text(
-                                      "CONTINUE",
-                                      style: TextStyle(
-                                        fontSize: 14.1,
-                                        fontWeight: FontWeight.w900,
-                                        color: Colors.black,
-                                        letterSpacing: 0.35,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 9),
-                          GestureDetector(
-                            onTap: _closeNotHelpful,
-                            child: const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 4),
-                              child: Text(
-                                "This was not helpful",
-                                style: TextStyle(
-                                  fontSize: 12.2,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white54,
-                                  decoration: TextDecoration.underline,
-                                  decorationColor: Colors.white38,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ),
-            );
-          },
-        ),
+            ),
+          );
+        },
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _heroOrb(double glow) {
     return Container(

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 🔥 Splash background (match app bg) -->
+    <color name="splash_bg">#05070D</color>
+
+    <!-- (optional ali korisno za kasnije) -->
+    <color name="black">#000000</color>
+    <color name="white">#FFFFFF</color>
+
+</resources>

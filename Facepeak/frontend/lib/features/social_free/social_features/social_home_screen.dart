@@ -117,76 +117,63 @@ class _SocialHomeFreeScreenState extends State<SocialHomeFreeScreen>
   }
 
   @override
-  Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).padding.bottom;
+Widget build(BuildContext context) {
+  final media = MediaQuery.of(context);
+  final bottomInset = media.padding.bottom;
 
-    return Scaffold(
-      backgroundColor: bg,
-      body: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(20, 10, 20, bottomInset + 18),
-          child: Column(
-            children: [
-              _topBar(),
-              const SizedBox(height: 10),
-              _avatar(),
-              const SizedBox(height: 10),
-              _usernameWidget(),
-              const SizedBox(height: 4),
-              _bioWidget(),
-              const SizedBox(height: 12),
-              _lockedStats(),
-              const SizedBox(height: 12),
-              _lockedActions(),
-              const SizedBox(height: 12),
-              _infoBox(),
-              const SizedBox(height: 10),
-              _ctaUpload(),
-            ],
-          ),
-        ),
+  return Scaffold(
+    backgroundColor: bg,
+    body: SafeArea(
+      bottom: false,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics(),
+            ),
+            padding: EdgeInsets.fromLTRB(
+              20,
+              10,
+              20,
+              bottomInset + 24,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: constraints.maxHeight,
+              ),
+              child: Column(
+                children: [
+                  _topBar(),
+                  const SizedBox(height: 10),
+                  _avatar(),
+                  const SizedBox(height: 10),
+                  _usernameWidget(),
+                  const SizedBox(height: 4),
+                  _bioWidget(),
+                  const SizedBox(height: 12),
+                  _lockedStats(),
+                  const SizedBox(height: 12),
+                  _lockedActions(),
+                  const SizedBox(height: 12),
+                  _infoBox(),
+                  const SizedBox(height: 10),
+                  _ctaUpload(),
+                ],
+              ),
+            ),
+          );
+        },
       ),
-    );
-  }
+    ),
+  );
+}
 
   // ================= TOP =================
 
   Widget _topBar() {
   return Row(
+    mainAxisAlignment: MainAxisAlignment.end,
     children: [
-      GestureDetector(
-        onTap: () => Navigator.pop(context),
-        child: Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.06),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Icon(
-            Icons.arrow_back_ios_new,
-            size: 16,
-            color: Colors.white,
-          ),
-        ),
-      ),
-      const Spacer(),
-      _topIconLocked(
-        Icons.remove_red_eye_outlined,
-        color: Colors.white,
-      ),
-      const SizedBox(width: 10),
-      _topIconLocked(
-        Icons.search_rounded,
-        color: Colors.white,
-      ),
-      const SizedBox(width: 10),
-      _topIconLocked(
-        Icons.favorite,
-        color: purple,
-      ),
-      const SizedBox(width: 10),
       _topIconLocked(
         Icons.menu,
         color: Colors.white,

@@ -12,7 +12,6 @@ ALGORITHM = "HS256"
 
 ACCESS_EXPIRE_MIN = 15
 REFRESH_EXPIRE_DAYS = 7
-CLOCK_SKEW = 10  # seconds
 
 ISSUER = "facepeak"
 MIN_SECRET_LENGTH = 32
@@ -77,7 +76,6 @@ def _validate_payload_shape(payload: dict):
 def create_access_token(user_id: int):
     now = _now_utc()
     payload = _base_payload(user_id, "access")
-
     payload["exp"] = int((now + timedelta(minutes=ACCESS_EXPIRE_MIN)).timestamp())
 
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
@@ -89,7 +87,6 @@ def create_refresh_token(user_id: int, jti: str):
 
     now = _now_utc()
     payload = _base_payload(user_id, "refresh")
-
     payload["jti"] = jti
     payload["exp"] = int((now + timedelta(days=REFRESH_EXPIRE_DAYS)).timestamp())
 
@@ -115,11 +112,9 @@ def decode_token(token: str):
                 "verify_iat": True,
             },
             issuer=ISSUER,
-            leeway=CLOCK_SKEW,
         )
 
         _validate_payload_shape(payload)
-
         return payload
 
     except ExpiredSignatureError:

@@ -16,10 +16,9 @@ class UserPSL(Base):
         nullable=False
     )
 
-    # 🔥 OSTAVLJAMO FLOAT (kako si tražio)
     psl_score = Column(Float, nullable=False)
     tier = Column(String, nullable=True)
-    percentile = Column(Float, nullable=True)
+    percentile = Column(Integer, nullable=True)
     confidence = Column(Float, nullable=True)
 
     created_at = Column(
@@ -28,11 +27,9 @@ class UserPSL(Base):
         nullable=False
     )
 
-    # 🔥 CLEAN RELATION (explicit > backref)
     user = relationship("User", back_populates="psl_history")
 
     __table_args__ = (
-        # 🔥 JEDINI INDEX KOJI TI TREBA
         Index(
             "idx_user_psl_user_created_desc",
             "user_id",

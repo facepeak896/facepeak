@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -7,26 +9,26 @@ import 'package:image_picker/image_picker.dart';
 import 'psl_loading.dart';
 
 class AnalysisCaptureSimple extends StatefulWidget {
-  final Map<String, dynamic> user; // 🔥 DODAJ
+  final Map<String, dynamic> user;
 
   const AnalysisCaptureSimple({
     super.key,
-    required this.user, // 🔥 DODAJ
+    required this.user,
   });
 
   @override
-  State<AnalysisCaptureSimple> createState() =>
-      _AnalysisCaptureSimpleState();
+  State<AnalysisCaptureSimple> createState() => _AnalysisCaptureSimpleState();
 }
 
 class _AnalysisCaptureSimpleState extends State<AnalysisCaptureSimple> {
   final ImagePicker _cameraPicker = ImagePicker();
 
-  bool _loading = true;
-  bool _capturing = false;
+  bool _cameraBusy = false;
   bool _navigating = false;
   bool _disposed = false;
-  bool _openedCamera = false;
+  bool _cameraOpenedOnce = false;
+
+  Future<void>? _activeFlow;
 
   static const bg = Color(0xFF0B0E14);
 
@@ -35,99 +37,128 @@ class _AnalysisCaptureSimpleState extends State<AnalysisCaptureSimple> {
     super.initState();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _openCamera();
+      _ensureCameraFlow();
     });
   }
 
-  Future<void> _openCamera() async {
+  Future<void> _finishWithMessage(String message) async {
+    if (_disposed || !mounted) return;
+
+    Navigator.of(context).pop(message);
+  }
+
+  Future<void> _safePop() async {
+    if (_disposed || !mounted) return;
+
+    final nav = Navigator.of(context);
+    if (nav.canPop()) {
+      nav.pop();
+    }
+  }
+
+  Future<void> _ensureCameraFlow() async {
+    if (_disposed) return;
+    if (_activeFlow != null) return;
+
+    _activeFlow = _openCameraFlow();
+
+    try {
+      await _activeFlow;
+    } finally {
+      _activeFlow = null;
+    }
+  }
+
+  Future<void> _openCameraFlow() async {
   if (_disposed || !mounted) return;
-  if (_openedCamera || _capturing || _navigating) return;
+  if (_cameraBusy || _navigating || _cameraOpenedOnce) return;
 
-  _openedCamera = true;
-  _capturing = true;
-
-  if (mounted) {
-    setState(() {
-      _loading = true;
-    });
-  }
+  _cameraBusy = true;
+  _cameraOpenedOnce = true;
 
   try {
-    HapticFeedback.mediumImpact();
+    await HapticFeedback.mediumImpact();
 
     final XFile? file = await _cameraPicker.pickImage(
       source: ImageSource.camera,
       imageQuality: 92,
       maxWidth: 2000,
+      preferredCameraDevice: CameraDevice.front,
     );
 
     if (_disposed || !mounted) return;
 
+    // User cancelled camera
     if (file == null) {
-      _capturing = false;
-      _loading = false;
-      _openedCamera = false;
-
-      if (mounted) {
-        setState(() {});
-      }
-
-      if (Navigator.of(context).canPop()) {
-        Navigator.of(context).pop();
-      }
+      _cameraBusy = false;
+      await _safePop();
       return;
     }
 
     final imageFile = File(file.path);
 
-    if (!imageFile.existsSync()) {
-      _capturing = false;
-      _loading = false;
-      _openedCamera = false;
+    final exists = await imageFile.exists();
 
-      if (mounted) {
-        setState(() {});
-      }
+    if (!exists) {
+      _cameraBusy = false;
+      _cameraOpenedOnce = false;
+
+      await _finishWithMessage(
+        "Photo could not be loaded. Please try again.",
+      );
       return;
     }
 
-    if (_disposed || !mounted) return;
-    if (_navigating) return;
+    if (_disposed || !mounted || _navigating) return;
 
     _navigating = true;
 
-    await Navigator.pushReplacement(
-      context,
+    final message = await Navigator.of(context).push<String?>(
       MaterialPageRoute(
         builder: (_) => AnalyzePslLoadingScreen(
           imageFile: imageFile,
           guestToken: "guest",
-          userSnapshot: widget.user, // 🔥 NOVO
+          userSnapshot: widget.user,
+
           onFinished: (_) {},
-          onError: (_) {},
+
+          onError: (message) {
+            if (!mounted) return;
+            Navigator.of(context).pop(message);
+          },
         ),
       ),
+    );
+
+    if (!mounted) return;
+
+    // 🔥 Forward loading error back to CreatePostScreen
+    if (message != null && message.trim().isNotEmpty) {
+      Navigator.of(context).pop(message);
+      return;
+    }
+  } on PlatformException catch (e) {
+    debugPrint("Camera platform error: ${e.code} ${e.message}");
+
+    _cameraOpenedOnce = false;
+    _cameraBusy = false;
+    _navigating = false;
+
+    await _finishWithMessage(
+      "Camera unavailable. Please allow camera access and try again.",
     );
   } catch (e) {
     debugPrint("Camera error: $e");
 
-    if (_disposed || !mounted) return;
+    _cameraOpenedOnce = false;
+    _cameraBusy = false;
+    _navigating = false;
 
-    setState(() {
-      _loading = false;
-      _capturing = false;
-      _openedCamera = false;
-      _navigating = false;
-    });
+    await _finishWithMessage(
+      "Something went wrong while opening the camera.",
+    );
   }
 }
-
-  Future<void> _retryOpenCamera() async {
-    if (_disposed || _capturing || _navigating) return;
-
-    _openedCamera = false;
-    await _openCamera();
-  }
 
   @override
   void dispose() {
@@ -135,75 +166,15 @@ class _AnalysisCaptureSimpleState extends State<AnalysisCaptureSimple> {
     super.dispose();
   }
 
-  Widget _buildLoading() {
+  @override
+  Widget build(BuildContext context) {
     return const Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: bg,
       body: Center(
-        child: CircularProgressIndicator(color: Colors.white),
-      ),
-    );
-  }
-
-  Widget _buildError() {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 28),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text(
-                "Camera unavailable",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                "Please allow camera access and try again.",
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 14,
-                ),
-              ),
-              const SizedBox(height: 20),
-              GestureDetector(
-                onTap: _retryOpenCamera,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 14,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Text(
-                    "Retry",
-                    style: TextStyle(
-                      color: Colors.black,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+        child: CircularProgressIndicator(
+          color: Colors.white,
         ),
       ),
     );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) {
-      return _buildLoading();
-    }
-
-    return _buildError();
   }
 }

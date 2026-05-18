@@ -1,18 +1,29 @@
+import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+import 'package:frontend/features/analysis/screens/app_state.dart';
+
+import 'package:frontend/features/social_free/auth_api.dart';
+import 'package:frontend/features/social_free/social_features/widgets/social_live_widgets.dart';
+
+import 'social_api.dart';
 
 // SCREENS
 import 'search_screen.dart';
+import 'search_main_screen.dart';
 import 'analytics_screen.dart';
 import 'matches_screen.dart';
 import 'edit_profile_screen.dart';
-import 'profile_views_screen.dart';
 import 'settings_screen.dart';
 import 'create_post_entry_screen.dart';
 import 'followers_screen.dart';
 import 'following_screen.dart';
 import 'social_explainer_screen.dart';
+
 class SocialLiveScreen extends StatefulWidget {
   final Map<String, dynamic> user;
   final Map<String, dynamic> psl;
@@ -32,6 +43,9 @@ class _SocialLiveScreenState extends State<SocialLiveScreen>
   final storage = const FlutterSecureStorage();
 
   static const String _howItWorksSeenKey = 'social_live_how_it_works_seen';
+  static const String _suggestedSeenKey = 'social_live_suggested_seen_v1';
+  static const String _scoreAgainNextAtKey =
+      'social_live_score_again_next_at_v1';
 
   late final AnimationController _pulse;
   late final AnimationController _screenAnim;
@@ -39,17 +53,22 @@ class _SocialLiveScreenState extends State<SocialLiveScreen>
   late final AnimationController _statsAnim;
   late final Animation<double> _screenOpacity;
 
+  Timer? _scoreAgainTimer;
+  DateTime? _scoreAgainNextAt;
+  Duration _scoreAgainRemaining = Duration.zero;
+
   Map<String, dynamic> _user = {};
   Map<String, dynamic> _psl = {};
 
   bool _showHowItWorks = true;
+  bool _suggestedPopupChecked = false;
+  bool _refreshing = false;
+  bool _cooldownReady = false;
 
   static const Color bg = Color(0xFF0B0E14);
-
   static const Color gold1 = Color(0xFFB8922E);
   static const Color gold2 = Color(0xFFF0CF5A);
   static const Color gold3 = Color(0xFFFFEDB3);
-
   static const Color editColor = Color(0xFF111827);
   static const Color analyticsColor = Color(0xFF1F2937);
   static const Color matchesColor = Color(0xFF7C3AED);
@@ -61,7 +80,6 @@ class _SocialLiveScreenState extends State<SocialLiveScreen>
 
     _user = {...widget.user};
     _psl = {...widget.psl};
-    _showHowItWorks = true;
 
     _pulse = AnimationController(
       vsync: this,
@@ -88,17 +106,23 @@ class _SocialLiveScreenState extends State<SocialLiveScreen>
       curve: Curves.easeOut,
     );
 
-    
+    _loadHowItWorksSeen();
+    _loadScoreAgainCooldown();
+    _syncScoreAgainCooldownFromBackend();
 
     _screenAnim.forward();
     _percentileAnim.forward();
     _statsAnim.forward();
-  }
 
-  
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maybeShowSuggestedPopup();
+      _refreshMe();
+    });
+  }
 
   @override
   void dispose() {
+    _scoreAgainTimer?.cancel();
     _pulse.dispose();
     _screenAnim.dispose();
     _percentileAnim.dispose();
@@ -119,36 +143,62 @@ class _SocialLiveScreenState extends State<SocialLiveScreen>
   }
 
   String _imagePath() {
-  final image = _readString(_user["image"]).trim();
-  if (image.isNotEmpty) return image;
+    final localImage = _readString(_user["local_image_path"]).trim();
 
-  final profileUrl = _readString(_user["profile_image_url"]).trim();
-  if (profileUrl.isNotEmpty) return profileUrl;
+    if (localImage.isNotEmpty && File(localImage).existsSync()) {
+      return localImage;
+    }
 
-  return "";
-}
+    final image = _readString(_user["image"]).trim();
+    final profileUrl = _readString(_user["profile_image_url"]).trim();
+    final raw = image.isNotEmpty ? image : profileUrl;
+
+    if (raw.isEmpty) return "";
+    if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
+    if (raw.startsWith("/storage/")) return "${SocialApi.baseUrl}$raw";
+
+    return raw;
+  }
 
   String _percentileText() {
     final percentile = _psl["percentile"];
-    if (percentile == null) return "";
 
-    if (percentile is String) return percentile;
-    if (percentile is num) return "Top ${percentile.toInt()}%";
+    if (percentile is String && percentile.trim().isNotEmpty) {
+      return percentile;
+    }
 
-    return percentile.toString();
+    if (percentile is num && percentile > 0) {
+      return "Top ${percentile.toInt()}%";
+    }
+
+    final saved = _user["reach_target_percentile"];
+    if (saved is num && saved > 0) {
+      return "Top ${saved.toInt()}%";
+    }
+
+    return "";
   }
 
   int _percentileNumber() {
+    final saved = _user["reach_target_percentile"];
+
+    if (saved is num && saved > 0) return saved.toInt();
+
+    final percentile = _psl["percentile"];
+
+    if (percentile is num && percentile > 0) return percentile.toInt();
+
     final text = _percentileText().toLowerCase();
     final match = RegExp(r'(\d+)').firstMatch(text);
+
     if (match == null) return 0;
+
     return int.tryParse(match.group(1)!) ?? 0;
   }
 
   String _animatedPercentileText() {
     final target = _percentileNumber();
-    final current =
-        (target * _percentileAnim.value).floor().clamp(0, target);
+    final current = (target * _percentileAnim.value).floor().clamp(0, target);
 
     if (_percentileText().toLowerCase().contains("bottom")) {
       return "Bottom $current%";
@@ -171,32 +221,6 @@ class _SocialLiveScreenState extends State<SocialLiveScreen>
     if (score >= 7) return const Color(0xFFC8C7FF);
     if (score >= 5) return const Color(0xFFDCE8FF);
     return const Color(0xFFEFF5FF);
-  }
-
-  String _rangeText() {
-    final c = _confidence();
-
-    double min;
-    double max;
-
-    if (c >= 0.9) {
-      min = 0.1;
-      max = 0.2;
-    } else if (c >= 0.8) {
-      min = 0.1;
-      max = 0.25;
-    } else if (c >= 0.7) {
-      min = 0.1;
-      max = 0.3;
-    } else if (c >= 0.5) {
-      min = 0.2;
-      max = 0.4;
-    } else {
-      min = 0.3;
-      max = 0.5;
-    }
-
-    return "+${min.toStringAsFixed(1)} → +${max.toStringAsFixed(1)} PSL";
   }
 
   int _nextTargetPercent() {
@@ -241,6 +265,104 @@ class _SocialLiveScreenState extends State<SocialLiveScreen>
     return "Unlock exact plan 🔒";
   }
 
+  Future<void> _refreshMe() async {
+  if (_refreshing) return;
+
+  _refreshing = true;
+
+  try {
+    final token = await AppState.getToken();
+    if (token == null || token.isEmpty) return;
+
+    final freshUser = await AuthApi.getMe(accessToken: token);
+
+    if (!mounted) return;
+
+    _applyFreshUser(freshUser);
+
+    await Future.delayed(const Duration(milliseconds: 450));
+    if (!mounted) return;
+
+    final freshUser2 = await AuthApi.getMe(accessToken: token);
+    if (!mounted) return;
+
+    _applyFreshUser(freshUser2);
+
+    await Future.delayed(const Duration(milliseconds: 900));
+    if (!mounted) return;
+
+    final freshUser3 = await AuthApi.getMe(accessToken: token);
+    if (!mounted) return;
+
+    _applyFreshUser(freshUser3);
+  } catch (e) {
+    debugPrint("❌ SOCIAL_LIVE refreshMe ERROR = $e");
+  } finally {
+    _refreshing = false;
+  }
+  }
+  void _applyFreshUser(Map<String, dynamic> freshUser) {
+  final freshPsl =
+      ((freshUser["psl"] as Map?)?.cast<String, dynamic>()) ??
+          <String, dynamic>{};
+
+  final stats =
+      ((freshUser["stats"] as Map?)?.cast<String, dynamic>()) ??
+          <String, dynamic>{};
+
+  final followers = freshUser["followers"] ??
+      freshUser["followers_count"] ??
+      freshUser["followersCount"] ??
+      stats["followers"] ??
+      stats["followers_count"] ??
+      stats["followersCount"] ??
+      _user["followers"] ??
+      0;
+
+  final following = freshUser["following"] ??
+      freshUser["following_count"] ??
+      freshUser["followingCount"] ??
+      stats["following"] ??
+      stats["following_count"] ??
+      stats["followingCount"] ??
+      _user["following"] ??
+      0;
+
+  final matches = freshUser["matches"] ??
+      freshUser["matches_count"] ??
+      freshUser["matchesCount"] ??
+      stats["matches"] ??
+      stats["matches_count"] ??
+      stats["matchesCount"] ??
+      _user["matches"] ??
+      0;
+
+  setState(() {
+    _user = {
+      ..._user,
+      ...freshUser,
+      "followers": followers,
+      "following": following,
+      "matches": matches,
+    };
+
+    if (freshPsl.isNotEmpty) {
+      _psl = {
+        ..._psl,
+        ...freshPsl,
+      };
+    }
+  });
+
+  AppState.setSocialSnapshot(user: _user, psl: _psl);
+}
+
+  Future<void> _onPullRefresh() async {
+    HapticFeedback.selectionClick();
+    await _refreshMe();
+    await _syncScoreAgainCooldownFromBackend();
+  }
+
   Future<void> _push(Widget screen) async {
     final result = await Navigator.push(
       context,
@@ -252,6 +374,18 @@ class _SocialLiveScreenState extends State<SocialLiveScreen>
         _user = {
           ..._user,
           ...result,
+          "followers": result["followers"] ??
+              result["followers_count"] ??
+              _user["followers"] ??
+              0,
+          "following": result["following"] ??
+              result["following_count"] ??
+              _user["following"] ??
+              0,
+          "matches": result["matches"] ??
+              result["matches_count"] ??
+              _user["matches"] ??
+              0,
         };
 
         if (result["psl"] is Map<String, dynamic>) {
@@ -261,1030 +395,561 @@ class _SocialLiveScreenState extends State<SocialLiveScreen>
           };
         }
       });
+
+      await AppState.setSocialSnapshot(user: _user, psl: _psl);
     }
+
+    await _refreshMe();
+  }
+
+  Future<void> _loadHowItWorksSeen() async {
+    final seen = await storage.read(key: _howItWorksSeenKey);
+
+    if (!mounted) return;
+
+    setState(() {
+      _showHowItWorks = seen != "1";
+    });
+  }
+
+  Future<void> _loadScoreAgainCooldown() async {
+  final raw = await storage.read(key: _scoreAgainNextAtKey);
+
+  if (raw == null || raw.isEmpty) {
+    if (!mounted) return;
+    setState(() => _cooldownReady = true);
+    return;
+  }
+
+  final dt = DateTime.tryParse(raw)?.toLocal();
+
+  if (dt == null || DateTime.now().isAfter(dt)) {
+    await storage.delete(key: _scoreAgainNextAtKey);
+
+    if (!mounted) return;
+    setState(() {
+      _scoreAgainNextAt = null;
+      _scoreAgainRemaining = Duration.zero;
+      _cooldownReady = true;
+    });
+
+    return;
+  }
+
+  _startScoreAgainTimer(dt);
+
+  if (!mounted) return;
+  setState(() => _cooldownReady = true);
+}
+
+  void _startScoreAgainTimer(DateTime nextAt) {
+  _scoreAgainTimer?.cancel();
+
+  setState(() {
+    _scoreAgainNextAt = nextAt;
+    _scoreAgainRemaining = nextAt.difference(DateTime.now());
+  });
+
+  _scoreAgainTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+    if (!mounted || _scoreAgainNextAt == null) return;
+
+    final remaining = _scoreAgainNextAt!.difference(DateTime.now());
+
+    if (remaining <= Duration.zero) {
+      _scoreAgainTimer?.cancel();
+
+      await storage.delete(key: _scoreAgainNextAtKey);
+
+      await _syncScoreAgainCooldownFromBackend();
+      await _refreshMe();
+
+      if (!mounted) return;
+
+      setState(() {
+        _scoreAgainNextAt = null;
+        _scoreAgainRemaining = Duration.zero;
+      });
+
+      return;
+    }
+
+    setState(() {
+      _scoreAgainRemaining = remaining;
+    });
+  });
+}
+
+  String _scoreAgainCountdownText() {
+    final d = _scoreAgainRemaining;
+
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    final s = d.inSeconds.remainder(60);
+
+    if (h > 0) return "${h}H ${m.toString().padLeft(2, '0')}M";
+    return "${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}";
+  }
+
+  DateTime? _cooldownFromResult(dynamic result) {
+    if (result is! Map) return null;
+
+    final raw = result["next_available_at"] ??
+        result["cooldown_until"] ??
+        result["retry_after_at"] ??
+        result["score_again_next_at"];
+
+    if (raw == null) return null;
+
+    return DateTime.tryParse(raw.toString())?.toLocal();
+  }
+
+  Future<void> _saveAndStartCooldown(DateTime nextAt) async {
+    await storage.write(
+      key: _scoreAgainNextAtKey,
+      value: nextAt.toUtc().toIso8601String(),
+    );
+
+    if (!mounted) return;
+    _startScoreAgainTimer(nextAt);
   }
 
   Future<void> _openEdit() async {
-  final updated = await Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => EditProfileScreen(user: _user),
-    ),
-  );
+    final updated = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EditProfileScreen(user: _user),
+      ),
+    );
 
-  if (updated != null && mounted) {
-    setState(() {
-      _user = {
-        ..._user,
-        ...updated,
-      };
-    });
+    if (updated != null && mounted) {
+      setState(() {
+        _user = {
+          ..._user,
+          ...updated,
+        };
+      });
+
+      await AppState.setSocialSnapshot(user: _user, psl: _psl);
+    }
+
+    await _refreshMe();
   }
-}
 
-Future<void> _openHowItWorks() async {
-  if (!mounted) return;
+  Future<void> _openHowItWorks() async {
+    await storage.write(key: _howItWorksSeenKey, value: "1");
 
-  await Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => const SocialExplainerScreen(),
-    ),
-  );
-}
+    if (!mounted) return;
 
-  
-  
-  
+    setState(() {
+      _showHowItWorks = false;
+    });
 
-  
-  Future<void> _openScoreAgain() async {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => CreatePostScreen(
-          user: _user,
-        ),
+        builder: (_) => const SocialExplainerScreen(),
       ),
     );
+  }
+
+  Future<void> _syncScoreAgainCooldownFromBackend() async {
+  try {
+    final token = await AppState.getToken();
+    if (token == null || token.isEmpty) {
+      if (!mounted) return;
+      setState(() => _cooldownReady = true);
+      return;
+    }
+
+    final data = await SocialApi.getSocialRescoreStatus(token: token);
+
+    final raw = data["next_available_at"];
+    if (raw == null || raw.toString().isEmpty) {
+      await storage.delete(key: _scoreAgainNextAtKey);
+
+      if (!mounted) return;
+
+      setState(() {
+        _scoreAgainNextAt = null;
+        _scoreAgainRemaining = Duration.zero;
+        _cooldownReady = true;
+      });
+
+      return;
+    }
+
+    final nextAt = DateTime.tryParse(raw.toString())?.toLocal();
+    if (nextAt == null) {
+      if (!mounted) return;
+      setState(() => _cooldownReady = true);
+      return;
+    }
+
+    if (DateTime.now().isBefore(nextAt)) {
+      await _saveAndStartCooldown(nextAt);
+    }
+
+    if (!mounted) return;
+    setState(() => _cooldownReady = true);
+  } catch (e) {
+    debugPrint("❌ SOCIAL_LIVE cooldown sync ERROR = $e");
+
+    if (!mounted) return;
+    setState(() => _cooldownReady = true);
+  }
+}
+
+  void _openUpgradeToPremium() {
+    HapticFeedback.mediumImpact();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text(
+          "Upgrade to Premium to analyze again instantly.",
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        backgroundColor: purple,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(18, 0, 18, 24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  Future<void> _openScoreAgain() async {
+  if (!_cooldownReady) return;
+
+  final locked =
+      _scoreAgainNextAt != null && DateTime.now().isBefore(_scoreAgainNextAt!);
+
+  if (locked) {
+    _openUpgradeToPremium();
+    return;
+  }
+
+  final result = await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => CreatePostScreen(
+        user: _user,
+      ),
+    ),
+  );
+
+  final cooldownAt = _cooldownFromResult(result);
+
+  if (cooldownAt != null && DateTime.now().isBefore(cooldownAt)) {
+    await _saveAndStartCooldown(cooldownAt);
+  }
+
+  await _refreshMe();
+}
+
+  Future<void> _maybeShowSuggestedPopup() async {
+    if (_suggestedPopupChecked) return;
+    _suggestedPopupChecked = true;
+
+    final seen = await storage.read(key: _suggestedSeenKey);
+    if (seen == "1") return;
+
+    await Future.delayed(const Duration(milliseconds: 750));
+    if (!mounted) return;
+
+    try {
+      final token = await AppState.getToken();
+      if (token == null || token.isEmpty) return;
+
+      final page = await SocialApi.getSocialUsersPage(
+        token: token,
+        limit: 8,
+        offset: 0,
+      );
+
+      final myId = _readInt(_user["id"] ?? _user["user_id"]);
+
+      final users = ((page["users"] ?? page["items"]) as List? ?? [])
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .where((u) => _readInt(u["id"] ?? u["user_id"]) != myId)
+          .take(3)
+          .toList();
+
+      if (!mounted || users.isEmpty) return;
+
+      await showDialog(
+        context: context,
+        barrierColor: Colors.black.withOpacity(0.76),
+        builder: (dialogContext) {
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+            child: SocialSuggestedUsersDialog(
+              users: users,
+              nameOf: _suggestedName,
+              imageOf: _suggestedImage,
+              percentileOf: _suggestedPercentile,
+              onClose: () async {
+                await storage.write(key: _suggestedSeenKey, value: "1");
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
+              onExplore: () async {
+                await storage.write(key: _suggestedSeenKey, value: "1");
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                _push(const SearchScreen());
+              },
+              onUserTap: (user) async {
+                await storage.write(key: _suggestedSeenKey, value: "1");
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+
+                final id = _readInt(user["id"] ?? user["user_id"]);
+                if (id > 0) {
+                  _push(SearchMainScreen(userId: id));
+                }
+              },
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      debugPrint("❌ SOCIAL_LIVE suggested popup ERROR = $e");
+    }
+  }
+
+  String _suggestedName(Map<String, dynamic> user) {
+    final raw = (user["username"] ?? user["display_name"] ?? user["name"] ?? "")
+        .toString()
+        .trim();
+
+    if (raw.isEmpty) return "User";
+    return raw;
+  }
+
+  String _suggestedImage(Map<String, dynamic> user) {
+    final raw = (user["profile_image_url"] ??
+            user["image_url"] ??
+            user["image"] ??
+            user["local_image_path"] ??
+            "")
+        .toString()
+        .trim();
+
+    if (raw.isEmpty) return "";
+    if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
+    if (raw.startsWith("/")) return "${SocialApi.baseUrl}$raw";
+    return raw;
+  }
+
+  String _suggestedPercentile(Map<String, dynamic> user) {
+    final p = user["percentile"] ??
+        user["reach_target_percentile"] ??
+        user["top_percentile"];
+
+    if (p is String && p.trim().isNotEmpty) {
+      if (p.toLowerCase().contains("top") ||
+          p.toLowerCase().contains("bottom")) {
+        return p.trim();
+      }
+    }
+
+    if (p is num && p > 0) return "Top ${p.toInt()}%";
+
+    final text = p?.toString().toLowerCase().trim() ?? "";
+    final match = RegExp(r'(\d+)').firstMatch(text);
+
+    if (match == null) return "Live profile";
+    return "Top ${match.group(1)}%";
   }
 
   @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final compact = constraints.maxHeight < 760;
-        final imageSize = compact ? 146.0 : 170.0;
-        final glowSize = compact ? 192.0 : 216.0;
-        final topGap = compact ? 8.0 : 12.0;
-        final betweenGap = compact ? 8.0 : 10.0;
-        final sectionGap = compact ? 8.0 : 10.0;
+Widget build(BuildContext context) {
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      final media = MediaQuery.of(context);
+      final bottomSafe = media.padding.bottom;
 
-        return Scaffold(
-          backgroundColor: bg,
-          body: SafeArea(
-            child: Stack(
-              children: [
-                AnimatedBuilder(
-                  animation: _screenAnim,
-                  builder: (context, child) {
-                    final y = 18 * (1 - _screenAnim.value);
+      final compact = constraints.maxHeight < 760;
+      final tiny = constraints.maxHeight < 690;
+      final ultraTiny = constraints.maxHeight < 640;
 
-                    return Transform.translate(
-                      offset: Offset(0, y),
-                      child: Opacity(
-                        opacity: _screenOpacity.value,
-                        child: child,
-                      ),
-                    );
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 14),
-                    child: Column(
-                      children: [
-                        _topBar(),
-                        SizedBox(height: topGap),
-                        _avatar(
-                          imageSize: imageSize,
-                          glowSize: glowSize,
-                        ),
-                        SizedBox(height: betweenGap),
-                        _identityBlock(compact: compact),
-                        SizedBox(height: sectionGap),
-                        _stats(compact: compact),
-                        SizedBox(height: compact ? 8 : 10),
-                        _actions(),
-                        SizedBox(height: sectionGap),
-                        _infoBox(compact: compact),
-                        if (_showHowItWorks) ...[
-                          const SizedBox(height: 8),
-                          _howItWorksEntry(),
-                        ],
-                        const Spacer(),
-                        _bottomCta(compact: compact),
-                      ],
+      final imageSize = ultraTiny ? 108.0 : tiny ? 122.0 : compact ? 136.0 : 158.0;
+      final glowSize = ultraTiny ? 132.0 : tiny ? 148.0 : compact ? 164.0 : 190.0;
+
+      final topGap = ultraTiny ? 4.0 : tiny ? 6.0 : compact ? 8.0 : 10.0;
+      final betweenGap = ultraTiny ? 5.0 : tiny ? 7.0 : compact ? 8.0 : 10.0;
+      final sectionGap = ultraTiny ? 7.0 : tiny ? 8.0 : compact ? 9.0 : 11.0;
+
+      final userId = _readInt(_user["id"] ?? _user["user_id"]);
+
+      final locked = !_cooldownReady ||
+          (_scoreAgainNextAt != null &&
+              DateTime.now().isBefore(_scoreAgainNextAt!));
+
+      return Scaffold(
+        backgroundColor: bg,
+        body: SafeArea(
+          bottom: false,
+          child: Stack(
+            children: [
+              const SocialLiveBackground(),
+
+              AnimatedBuilder(
+                animation: _screenAnim,
+                builder: (context, child) {
+                  final y = 18 * (1 - _screenAnim.value);
+
+                  return Transform.translate(
+                    offset: Offset(0, y),
+                    child: Opacity(
+                      opacity: _screenOpacity.value,
+                      child: child,
                     ),
-                  ),
-                ),
-
-                IgnorePointer(
-                  ignoring: true,
-                  child: AnimatedBuilder(
-                    animation: _screenAnim,
-                    builder: (context, _) {
-                      final overlayOpacity =
-                          (1 - Curves.easeOut.transform(_screenAnim.value))
-                              .clamp(0.0, 1.0);
-
-                      if (overlayOpacity <= 0.01) {
-                        return const SizedBox.shrink();
-                      }
-
-                      return Opacity(
-                        opacity: overlayOpacity,
-                        child: Container(
-                          color: bg,
-                          child: Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 58,
-                                  height: 58,
-                                  decoration: BoxDecoration(
-                                    color: gold2.withOpacity(0.12),
-                                    borderRadius: BorderRadius.circular(18),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: gold2.withOpacity(0.28),
-                                        blurRadius: 24,
-                                      ),
-                                    ],
-                                  ),
-                                  child: const Icon(
-                                    Icons.bolt_rounded,
-                                    color: gold2,
-                                    size: 30,
-                                  ),
-                                ),
-                                const SizedBox(height: 14),
-                                const Text(
-                                  "Going live...",
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w900,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ],
+                  );
+                },
+                child: RefreshIndicator(
+                  color: gold2,
+                  backgroundColor: const Color(0xFF111827),
+                  displacement: 34,
+                  onRefresh: _onPullRefresh,
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(
+                      parent: AlwaysScrollableScrollPhysics(),
+                    ),
+                    padding: EdgeInsets.only(
+                      bottom: bottomSafe + (ultraTiny ? 92 : tiny ? 98 : 108),
+                    ),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight -
+                            media.padding.top -
+                            media.padding.bottom,
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          ultraTiny ? 16 : 20,
+                          ultraTiny ? 6 : 10,
+                          ultraTiny ? 16 : 20,
+                          0,
+                        ),
+                        child: Column(
+                          children: [
+                            SocialLiveTopBar(
+                              onSettings: () => _push(const SettingsScreen()),
                             ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-  
+                            SizedBox(height: topGap),
 
-  // ================= TOP =================
+                            SocialLiveAvatar(
+                              imagePath: _imagePath(),
+                              imageSize: imageSize,
+                              glowSize: glowSize,
+                              pulse: _pulse,
+                              screenAnim: _screenAnim,
+                            ),
 
-  Widget _topBar() {
-    return Row(
-      children: [
-        _topIcon(
-          Icons.arrow_back_ios_new,
-          () => Navigator.maybePop(context),
-          size: 16,
-        ),
-        const Spacer(),
-        _topIcon(
-          Icons.remove_red_eye_outlined,
-          () => _push(const ProfileViewsScreen()),
-          size: 20,
-        ),
-        const SizedBox(width: 10),
-        _topIcon(
-          Icons.search_rounded,
-          () => _push(const SearchScreen()),
-          size: 20,
-        ),
-        const SizedBox(width: 10),
-        _topIcon(
-          Icons.favorite,
-          () => _push(const MatchesScreen()),
-          size: 20,
-          color: purple,
-        ),
-        const SizedBox(width: 10),
-        _topIcon(
-          Icons.menu,
-          () => _push(const SettingsScreen()),
-          size: 20,
-        ),
-      ],
-    );
-  }
+                            SizedBox(height: betweenGap),
 
-  Widget _topIcon(
-    IconData icon,
-    VoidCallback onTap, {
-    Color color = Colors.white,
-    double size = 20,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.06),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(
-          icon,
-          size: size,
-          color: color,
-        ),
-      ),
-    );
-  }
+                            SocialLiveIdentityBlock(
+                              username: _username(),
+                              percentile: _animatedPercentileText(),
+                              percentileColor: _heroPercentileColor(),
+                              compact: compact || ultraTiny,
+                              pulse: _pulse,
+                              screenAnim: _screenAnim,
+                              percentileAnim: _percentileAnim,
+                            ),
 
-  // ================= AVATAR =================
+                            SizedBox(height: sectionGap),
 
-  Widget _avatar({
-  required double imageSize,
-  required double glowSize,
-}) {
-  final imagePath = _imagePath();
-  final hasImage = imagePath.isNotEmpty;
-  final isNetworkImage =
-      hasImage &&
-      (imagePath.startsWith("http://") || imagePath.startsWith("https://"));
-  final isLocalImage = hasImage && !isNetworkImage;
+                            SocialLiveStatsPanel(
+                              followers: _readInt(_user["followers"]),
+                              following: _readInt(_user["following"]),
+                              matches: _readInt(_user["matches"]),
+                              compact: compact || ultraTiny,
+                              statsAnim: _statsAnim,
+                              onFollowers: () =>
+                                  _push(FollowersScreen(userId: userId)),
+                              onFollowing: () =>
+                                  _push(FollowingScreen(userId: userId)),
+                              onMatches: () => _push(const MatchesScreen()),
+                            ),
 
-  return AnimatedBuilder(
-    animation: Listenable.merge([_pulse, _screenAnim]),
-    builder: (context, _) {
-      final glow = _pulse.value;
-      final reveal = Curves.easeOut.transform(_screenAnim.value);
-      final scale = 0.962 + (0.038 * reveal);
+                            SizedBox(height: ultraTiny ? 7 : compact ? 8 : 10),
 
-      return Transform.scale(
-        scale: scale,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-              width: glowSize,
-              height: glowSize,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(42),
-                boxShadow: [
-                  BoxShadow(
-                    color: gold2.withOpacity(0.18 + glow * 0.24),
-                    blurRadius: 52 + glow * 18,
-                    spreadRadius: 1.6,
-                  ),
-                  BoxShadow(
-                    color: gold1.withOpacity(0.10 + glow * 0.06),
-                    blurRadius: 96,
-                  ),
-                ],
-              ),
-            ),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(32),
-              child: Container(
-                width: imageSize,
-                height: imageSize,
-                color: Colors.black,
-                child: isLocalImage
-                    ? Image.file(
-                        File(imagePath),
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const Center(
-                          child: Icon(
-                            Icons.person_rounded,
-                            size: 72,
-                            color: Colors.white38,
-                          ),
-                        ),
-                      )
-                    : isNetworkImage
-                        ? Image.network(
-                            imagePath,
-                            fit: BoxFit.cover,
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return const Center(
-                                child: SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2.2,
-                                    color: gold2,
-                                  ),
-                                ),
-                              );
-                            },
-                            errorBuilder: (_, __, ___) => const Center(
-                              child: Icon(
-                                Icons.person_rounded,
-                                size: 72,
-                                color: Colors.white38,
+                            SocialLiveActions(
+                              pulse: _pulse,
+                              onEdit: _openEdit,
+                              onAnalytics: () => _push(const AnalyticsScreen()),
+                              onMatches: () => _push(const MatchesScreen()),
+                            ),
+
+                            SizedBox(height: sectionGap),
+
+                            SocialLiveInfoBox(
+                              compact: compact || ultraTiny,
+                              pulse: _pulse,
+                              leftTitle: _leftInfoTitle(),
+                              leftSubtitle: _leftInfoSubtitle(),
+                              premiumTitle: _premiumBlockTitle(),
+                              premiumSubtitle: _premiumBlockSubtitle(),
+                            ),
+
+                            if (_showHowItWorks) ...[
+                              const SizedBox(height: 8),
+                              SocialLiveHowItWorksEntry(
+                                pulse: _pulse,
+                                onTap: _openHowItWorks,
                               ),
-                            ),
-                          )
-                        : const Center(
-                            child: Icon(
-                              Icons.person_rounded,
-                              size: 72,
-                              color: Colors.white38,
-                            ),
-                          ),
-              ),
-            ),
-          ],
-        ),
-      );
-    },
-  );
-}
+                            ],
 
-  // ================= IDENTITY =================
+                            SizedBox(height: ultraTiny ? 10 : compact ? 12 : 18),
 
-  Widget _identityBlock({required bool compact}) {
-  final topAnim = CurvedAnimation(
-    parent: _screenAnim,
-    curve: const Interval(0.08, 0.46, curve: Curves.easeOut),
-  );
-
-  final percentileColor = _heroPercentileColor();
-
-  return AnimatedBuilder(
-    animation: Listenable.merge([_screenAnim, _pulse, _percentileAnim]),
-    builder: (context, _) {
-      final glow = _pulse.value;
-      final percentile = _animatedPercentileText();
-
-      return Column(
-        children: [
-          Opacity(
-            opacity: topAnim.value,
-            child: Transform.translate(
-              offset: Offset(0, 10 * (1 - topAnim.value)),
-              child: Wrap(
-                alignment: WrapAlignment.center,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 8,
-                runSpacing: 4,
-                children: [
-                  Text(
-                    _username(),
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: compact ? 26 : 30,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                      height: 1.0,
-                    ),
-                  ),
-                  if (percentile.isNotEmpty) ...[
-                    Text(
-                      "•",
-                      style: TextStyle(
-                        fontSize: compact ? 18 : 20,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white24,
-                        height: 1.0,
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.04),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: percentileColor.withOpacity(0.18),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: percentileColor.withOpacity(
-                              0.05 + glow * 0.04,
-                            ),
-                            blurRadius: 14,
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        percentile,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: compact ? 24 : 28,
-                          fontWeight: FontWeight.w900,
-                          color: percentileColor,
-                          height: 1.0,
-                          shadows: [
-                            Shadow(
-                              color: percentileColor.withOpacity(
-                                0.16 + glow * 0.10,
-                              ),
-                              blurRadius: 14 + glow * 6,
+                            SocialLiveBottomCta(
+                              compact: compact || ultraTiny,
+                              locked: locked,
+                              countdownText: !_cooldownReady
+                                  ? "SYNC"
+                                  : _scoreAgainCountdownText(),
+                              pulse: _pulse,
+                              onTap: _openScoreAgain,
                             ),
                           ],
                         ),
                       ),
                     ),
-                  ],
-                ],
+                  ),
+                ),
               ),
-            ),
-          ),
-        ],
-      );
-    },
-  );
-}
 
-  // ================= STATS =================
+              IgnorePointer(
+                ignoring: true,
+                child: AnimatedBuilder(
+                  animation: _screenAnim,
+                  builder: (context, _) {
+                    final overlayOpacity =
+                        (1 - Curves.easeOut.transform(_screenAnim.value))
+                            .clamp(0.0, 1.0);
 
-  Widget _stats({required bool compact}) {
-  final reveal = CurvedAnimation(
-    parent: _statsAnim,
-    curve: const Interval(0.10, 0.95, curve: Curves.easeOut),
-  );
+                    if (overlayOpacity <= 0.01) {
+                      return const SizedBox.shrink();
+                    }
 
-  return AnimatedBuilder(
-    animation: _statsAnim,
-    builder: (context, _) {
-      return Opacity(
-        opacity: reveal.value,
-        child: Transform.scale(
-          scale: 0.96 + (0.04 * reveal.value),
-          child: Container(
-            padding: EdgeInsets.symmetric(
-              vertical: compact ? 9 : 10,
-              horizontal: compact ? 10 : 12,
-            ),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: purple.withOpacity(0.50)),
-              color: Colors.white.withOpacity(0.025),
-              boxShadow: [
-                BoxShadow(
-                  color: purple.withOpacity(0.10),
-                  blurRadius: 22,
+                    return Opacity(
+                      opacity: overlayOpacity,
+                      child: const SocialLiveLoadingOverlay(),
+                    );
+                  },
                 ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _LiveStatCard(
-                    label: "Following",
-                    value: _readInt(_user["following"]),
-                    onTap: () => _push(const FollowingScreen()),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _LiveStatCard(
-                    label: "Followers",
-                    value: _readInt(_user["followers"]),
-                    onTap: () => _push(const FollowersScreen()),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _LiveStatCard(
-                    label: "Matches",
-                    value: _readInt(_user["matches"]),
-                    accent: purple,
-                    onTap: () => _push(const MatchesScreen()),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    },
-  );
-}
-  // ================= ACTIONS =================
-
-  Widget _actions() {
-    return Row(
-      children: [
-        Expanded(
-          child: _btn(
-            "Edit",
-            Icons.edit,
-            editColor,
-            _openEdit,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _btn(
-            "Analytics",
-            Icons.bar_chart,
-            analyticsColor,
-            () => _push(const AnalyticsScreen()),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _btn(
-            "Matches",
-            Icons.favorite,
-            matchesColor,
-            () => _push(const MatchesScreen()),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _btn(
-    String t,
-    IconData i,
-    Color color,
-    VoidCallback onTap,
-  ) {
-    return AnimatedBuilder(
-      animation: _pulse,
-      builder: (context, _) {
-        final glow = _pulse.value;
-
-        return GestureDetector(
-          onTap: onTap,
-          child: Container(
-            height: 46,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: color.withOpacity(0.16 + glow * 0.14),
-                  blurRadius: 16 + glow * 8,
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(i, color: Colors.white),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    t,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  // ================= INFO =================
-
-  Widget _infoBox({required bool compact}) {
-  return AnimatedBuilder(
-    animation: _pulse,
-    builder: (context, _) {
-      final glow = _pulse.value;
-
-      return Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: compact ? 14 : 16,
-          vertical: compact ? 12 : 13,
-        ),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: gold1.withOpacity(0.74)),
-          color: Colors.white.withOpacity(0.02),
-          boxShadow: [
-            BoxShadow(
-              color: gold1.withOpacity(0.09 + glow * 0.08),
-              blurRadius: 18,
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: _miniInfoColumn(
-                _leftInfoTitle(),
-                _leftInfoSubtitle(),
-                Colors.white,
-                Colors.white70,
-              ),
-            ),
-            Container(
-              width: 1,
-              height: compact ? 34 : 38,
-              color: Colors.white12,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _PreviewPremiumBlock(
-                title: _premiumBlockTitle(),
-                subtitle: _premiumBlockSubtitle(),
-              ),
-            ),
-          ],
-        ),
-      );
-    },
-  );
-}
-
-Widget _howItWorksEntry() {
-  return GestureDetector(
-    onTap: _openHowItWorks,
-    child: AnimatedBuilder(
-      animation: _pulse,
-      builder: (context, _) {
-        final glow = _pulse.value;
-
-        return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: gold2.withOpacity(0.24 + glow * 0.10),
-            ),
-            color: Colors.white.withOpacity(0.025),
-            boxShadow: [
-              BoxShadow(
-                color: gold2.withOpacity(0.08 + glow * 0.08),
-                blurRadius: 16 + glow * 8,
               ),
             ],
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: const LinearGradient(
-                    colors: [gold2, gold3],
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: gold2.withOpacity(0.35),
-                      blurRadius: 12,
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.bolt_rounded,
-                  size: 16,
-                  color: Colors.black,
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Text(
-                  "SEE HOW SOCIAL WORKS 💥",
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12.8,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.white,
-                    letterSpacing: 0.3,
-                  ),
-                ),
-              ),
-              const Icon(
-                Icons.trending_flat_rounded,
-                size: 18,
-                color: gold2,
-              ),
-            ],
-          ),
-        );
-      },
-    ),
-  );
-}
-
-  // ================= CTA =================
-
-  Widget _bottomCta({required bool compact}) {
-  return AnimatedBuilder(
-    animation: _pulse,
-    builder: (context, _) {
-      final glow = _pulse.value;
-
-      return GestureDetector(
-        onTap: _openScoreAgain,
-        child: Container(
-          width: double.infinity,
-          height: compact ? 50 : 52,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            gradient: const LinearGradient(
-              colors: [gold2, gold3],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: gold2.withOpacity(0.46 + glow * 0.30),
-                blurRadius: 28 + glow * 12,
-              ),
-            ],
-          ),
-          child: const Center(
-            child: Text(
-              "GET YOUR SCORE AGAIN",
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontWeight: FontWeight.w900,
-                fontSize: 14.2,
-                color: Colors.black,
-              ),
-            ),
-          ),
         ),
       );
     },
   );
 }
-  Widget _miniInfoColumn(
-    String title,
-    String value,
-    Color titleColor,
-    Color valueColor,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w900,
-            color: titleColor,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: valueColor,
-            height: 1.15,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _LiveStatCard extends StatelessWidget {
-  final String label;
-  final int value;
-  final Color accent;
-  final VoidCallback onTap;
-
-  const _LiveStatCard({
-    required this.label,
-    required this.value,
-    required this.onTap,
-    this.accent = Colors.white,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          color: Colors.white.withOpacity(0.035),
-          border: Border.all(color: Colors.white.withOpacity(0.04)),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              "$value",
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 21,
-                fontWeight: FontWeight.w900,
-                color: accent, 
-                height: 1.0,
-              ),
-            ),
-            const SizedBox(height: 7),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-                color: Colors.white70,
-                height: 1.0,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PreviewPremiumBlock extends StatelessWidget {
-  final String title;
-  final String subtitle;
-
-  const _PreviewPremiumBlock({
-    required this.title,
-    required this.subtitle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w900,
-            color: Colors.white,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          subtitle,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: Colors.white70,
-            height: 1.1,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _HowSocialWorksScreen extends StatelessWidget {
-  const _HowSocialWorksScreen();
-
-  static const Color bg = Color(0xFF0B0E14);
-  static const Color gold2 = Color(0xFFF0CF5A);
-  static const Color purple = Color(0xFF7C3AED);
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: bg,
-      appBar: AppBar(
-        backgroundColor: bg,
-        elevation: 0,
-        title: const Text(
-          "How social works",
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            color: Colors.white,
-          ),
-        ),
-        iconTheme: const IconThemeData(color: Colors.white),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-        child: Column(
-          children: [
-            _HowCard(
-              icon: Icons.search_rounded,
-              iconColor: Colors.white,
-              title: "Search",
-              text: "People can now find your profile through search.",
-            ),
-            const SizedBox(height: 12),
-            _HowCard(
-              icon: Icons.favorite,
-              iconColor: purple,
-              title: "Matches",
-              text: "Your profile is now active for matches and interaction.",
-            ),
-            const SizedBox(height: 12),
-            _HowCard(
-              icon: Icons.remove_red_eye_outlined,
-              iconColor: Colors.white,
-              title: "Visibility",
-              text: "You are now visible inside the social part of the app.",
-            ),
-            const Spacer(),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: gold2.withOpacity(0.35)),
-                color: Colors.white.withOpacity(0.03),
-              ),
-              child: const Text(
-                "The better your score, the stronger your social reach can become.",
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                  height: 1.25,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _HowCard extends StatelessWidget {
-  final IconData icon;
-  final Color iconColor;
-  final String title;
-  final String text;
-
-  const _HowCard({
-    required this.icon,
-    required this.iconColor,
-    required this.title,
-    required this.text,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        color: Colors.white.withOpacity(0.03),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              icon,
-              color: iconColor,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  text,
-                  style: const TextStyle(
-                    fontSize: 12.8,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white70,
-                    height: 1.25,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }

@@ -61,17 +61,40 @@ class _CreatePostScreenState extends State<CreatePostScreen>
   }
 
   Future<void> _continue() async {
-    HapticFeedback.heavyImpact();
+  HapticFeedback.heavyImpact();
 
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => AnalysisCaptureSimple(
-          user: widget.user,
+  final message = await Navigator.push<String?>(
+    context,
+    MaterialPageRoute(
+      builder: (_) => AnalysisCaptureSimple(
+        user: widget.user,
+      ),
+    ),
+  );
+
+  if (!mounted) return;
+
+  if (message != null && message.trim().isNotEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
         ),
+        backgroundColor: const Color(0xFFE53935),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 26),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        duration: const Duration(seconds: 4),
       ),
     );
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -279,7 +302,7 @@ class _CreatePostScreenState extends State<CreatePostScreen>
               const SizedBox(height: 14),
               _compactRow(
                 icon: Icons.edit_outlined,
-                title: "Change photo later in Edit",
+                title: "Change name later in Edit",
               ),
             ],
           ),

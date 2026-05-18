@@ -1,56 +1,45 @@
 import 'dart:convert';
 import 'dart:async';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 
 class AuthApi {
   static const String _baseUrl = 'http://192.168.88.100:8000';
 
-  // =========================================================
-  // ▶️ GOOGLE LOGIN → BACKEND → ACCESS + REFRESH
-  // =========================================================
   static Future<Map<String, dynamic>> googleLogin({
     required String idToken,
   }) async {
     final url = Uri.parse('$_baseUrl/api/v1/auth/google');
 
     try {
-      final res = await http
-          .post(
-            url,
-            headers: {
-              "Content-Type": "application/json",
-              "Accept": "application/json",
-            },
-            body: jsonEncode({
-              "id_token": idToken,
-            }),
-          )
-          .timeout(const Duration(seconds: 10));
+      debugPrint("❌❌❌ AUTH_API googleLogin START");
 
-      final data = res.body.isNotEmpty
-          ? jsonDecode(res.body) as Map<String, dynamic>
-          : <String, dynamic>{};
+      final res = await http.post(
+        url,
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: jsonEncode({"id_token": idToken}),
+      ).timeout(const Duration(seconds: 10));
+
+      debugPrint("❌❌❌ AUTH_API googleLogin status = ${res.statusCode}");
+      debugPrint("❌❌❌ AUTH_API googleLogin body = ${res.body}");
+
+      final data = _decodeMap(res.body);
 
       if (res.statusCode != 200) {
-        throw Exception(
-          data["detail"] ??
-              data["message"] ??
-              "GOOGLE_LOGIN_FAILED_${res.statusCode}",
-        );
+        throw Exception(data["detail"] ?? data["message"] ?? "GOOGLE_LOGIN_FAILED_${res.statusCode}");
       }
 
       final accessToken = data["access_token"];
       final refreshToken = data["refresh_token"];
 
-      if (accessToken == null ||
-          accessToken is! String ||
-          accessToken.isEmpty) {
+      if (accessToken is! String || accessToken.isEmpty) {
         throw Exception("NO_ACCESS_TOKEN");
       }
 
-      if (refreshToken == null ||
-          refreshToken is! String ||
-          refreshToken.isEmpty) {
+      if (refreshToken is! String || refreshToken.isEmpty) {
         throw Exception("NO_REFRESH_TOKEN");
       }
 
@@ -67,52 +56,40 @@ class AuthApi {
     }
   }
 
-  // =========================================================
-  // ▶️ REFRESH ACCESS TOKEN
-  // =========================================================
   static Future<Map<String, dynamic>> refresh({
     required String refreshToken,
   }) async {
     final url = Uri.parse('$_baseUrl/api/v1/auth/refresh');
 
     try {
-      final res = await http
-          .post(
-            url,
-            headers: {
-              "Content-Type": "application/json",
-              "Accept": "application/json",
-            },
-            body: jsonEncode({
-              "refresh_token": refreshToken,
-            }),
-          )
-          .timeout(const Duration(seconds: 10));
+      debugPrint("❌❌❌ AUTH_API refresh START");
 
-      final data = res.body.isNotEmpty
-          ? jsonDecode(res.body) as Map<String, dynamic>
-          : <String, dynamic>{};
+      final res = await http.post(
+        url,
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: jsonEncode({"refresh_token": refreshToken}),
+      ).timeout(const Duration(seconds: 10));
+
+      debugPrint("❌❌❌ AUTH_API refresh status = ${res.statusCode}");
+      debugPrint("❌❌❌ AUTH_API refresh body = ${res.body}");
+
+      final data = _decodeMap(res.body);
 
       if (res.statusCode != 200) {
-        throw Exception(
-          data["detail"] ??
-              data["message"] ??
-              "REFRESH_FAILED_${res.statusCode}",
-        );
+        throw Exception(data["detail"] ?? data["message"] ?? "REFRESH_FAILED_${res.statusCode}");
       }
 
       final accessToken = data["access_token"];
       final newRefreshToken = data["refresh_token"];
 
-      if (accessToken == null ||
-          accessToken is! String ||
-          accessToken.isEmpty) {
+      if (accessToken is! String || accessToken.isEmpty) {
         throw Exception("NO_ACCESS_TOKEN");
       }
 
-      if (newRefreshToken == null ||
-          newRefreshToken is! String ||
-          newRefreshToken.isEmpty) {
+      if (newRefreshToken is! String || newRefreshToken.isEmpty) {
         throw Exception("NO_REFRESH_TOKEN");
       }
 
@@ -128,38 +105,24 @@ class AuthApi {
     }
   }
 
-  // =========================================================
-  // ▶️ LOGOUT
-  // =========================================================
   static Future<void> logout({
     required String refreshToken,
   }) async {
     final url = Uri.parse('$_baseUrl/api/v1/auth/logout');
 
     try {
-      final res = await http
-          .post(
-            url,
-            headers: {
-              "Content-Type": "application/json",
-              "Accept": "application/json",
-            },
-            body: jsonEncode({
-              "refresh_token": refreshToken,
-            }),
-          )
-          .timeout(const Duration(seconds: 10));
+      final res = await http.post(
+        url,
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: jsonEncode({"refresh_token": refreshToken}),
+      ).timeout(const Duration(seconds: 10));
 
       if (res.statusCode != 200) {
-        final data = res.body.isNotEmpty
-            ? jsonDecode(res.body) as Map<String, dynamic>
-            : <String, dynamic>{};
-
-        throw Exception(
-          data["detail"] ??
-              data["message"] ??
-              "LOGOUT_FAILED_${res.statusCode}",
-        );
+        final data = _decodeMap(res.body);
+        throw Exception(data["detail"] ?? data["message"] ?? "LOGOUT_FAILED_${res.statusCode}");
       }
     } on TimeoutException {
       throw Exception("LOGOUT_TIMEOUT");
@@ -168,35 +131,29 @@ class AuthApi {
     }
   }
 
-  // =========================================================
-  // ▶️ GET ME
-  // =========================================================
   static Future<Map<String, dynamic>> getMe({
     required String accessToken,
   }) async {
     final url = Uri.parse('$_baseUrl/api/v1/auth/me');
 
     try {
-      final res = await http
-          .get(
-            url,
-            headers: {
-              "Authorization": "Bearer $accessToken",
-              "Accept": "application/json",
-            },
-          )
-          .timeout(const Duration(seconds: 10));
+      debugPrint("❌❌❌ AUTH_API getMe START");
 
-      final data = res.body.isNotEmpty
-          ? jsonDecode(res.body) as Map<String, dynamic>
-          : <String, dynamic>{};
+      final res = await http.get(
+        url,
+        headers: {
+          "Authorization": "Bearer $accessToken",
+          "Accept": "application/json",
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      debugPrint("❌❌❌ AUTH_API getMe status = ${res.statusCode}");
+      debugPrint("❌❌❌ AUTH_API getMe body = ${res.body}");
+
+      final data = _decodeMap(res.body);
 
       if (res.statusCode != 200) {
-        throw Exception(
-          data["detail"] ??
-              data["message"] ??
-              "GET_ME_FAILED_${res.statusCode}",
-        );
+        throw Exception(data["detail"] ?? data["message"] ?? "GET_ME_FAILED_${res.statusCode}");
       }
 
       return _normalizeUser(data);
@@ -207,9 +164,20 @@ class AuthApi {
     }
   }
 
-  // =========================================================
-  // ▶️ NORMALIZE USER SNAPSHOT
-  // =========================================================
+  static Map<String, dynamic> _decodeMap(String body) {
+    if (body.isEmpty) return <String, dynamic>{};
+
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      return <String, dynamic>{};
+    } catch (_) {
+      return {
+        "detail": body,
+      };
+    }
+  }
+
   static Map<String, dynamic> _normalizeUser(Map<String, dynamic> data) {
     final psl = (data["psl"] is Map<String, dynamic>)
         ? data["psl"] as Map<String, dynamic>
@@ -219,7 +187,7 @@ class AuthApi {
       "psl_score": (psl["psl_score"] is num)
           ? (psl["psl_score"] as num).toInt()
           : 0,
-      "tier": psl["tier"] ?? "Unknown",
+      "tier": psl["tier"] ?? "",
       "percentile": psl["percentile"] ?? "",
       "confidence": (psl["confidence"] is num)
           ? (psl["confidence"] as num).toDouble()
@@ -227,10 +195,19 @@ class AuthApi {
     };
 
     data["id"] = data["id"];
-    data["username"] = data["username"] ?? "user";
+    data["username"] = data["username"] ?? "User";
+    data["display_name"] = data["display_name"] ?? data["username"] ?? "User";
     data["bio"] = data["bio"] ?? "";
     data["email"] = data["email"] ?? "";
+
     data["profile_image_url"] = data["profile_image_url"] ?? "";
+    data["image"] = data["image"] ?? data["profile_image_url"] ?? "";
+
+    data["weekly_potential_range"] = data["weekly_potential_range"] ?? "";
+    data["reach_target_percentile"] =
+        (data["reach_target_percentile"] is num)
+            ? data["reach_target_percentile"]
+            : 0;
 
     data["followers"] = (data["followers"] is num) ? data["followers"] : 0;
     data["following"] = (data["following"] is num) ? data["following"] : 0;

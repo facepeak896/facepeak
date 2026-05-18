@@ -11,7 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 # AI modules (ONLY WHAT YOU USE)
 # ============================================================
 from Backend.ai.psl_adapter import run_psl_adapter
-from Backend.ai.appeal_adapter import run_appeal_adapter_insight
+
 from Backend.ai.analysis_adapter import analyze_face
 
 # ============================================================
@@ -283,86 +283,3 @@ async def analyze_free(
         raise
 
 
-# ============================================================
-# 🔥 APPEAL ROUTE (UNCHANGED LOGIC + FIX)
-# ============================================================
-@router.post("/{analysis_id}/appeal")
-async def analyze_appeal(
-    request: Request,
-    analysis_id: str,
-    x_guest_token: str | None = Header(default=None),
-    redis=Depends(get_redis),
-):
-    try:
-
-        if not x_guest_token:
-            raise HTTPException(status_code=400, detail="GUEST_TOKEN_REQUIRED")
-
-        payload = get_analysis_payload(analysis_id)
-
-        # ✅ FIX
-        image_b64 = payload.get("image_bytes")
-        if not image_b64:
-            raise HTTPException(status_code=400, detail="IMAGE_MISSING")
-
-        image_bytes = base64.b64decode(image_b64)
-
-        subject_id = f"guest:{x_guest_token}"
-        used_key = f"appeal:used:{subject_id}"
-
-        print("=== APPEAL ROUTE HIT ===")
-
-        cached = get_analysis_part(analysis_id, "appeal")
-        if cached:
-            used = int(redis.get(used_key) or 0)
-
-            return {
-                "status": "success",
-                "appeal": cached,
-                "cached": True,
-                "used": used,
-                "limit": 2,
-            }
-
-        res = await run_in_threadpool(
-            run_appeal_adapter_insight,
-            image_bytes,
-        )
-
-        if res.get("status") != "success" or not res.get("appeal"):
-            raise HTTPException(status_code=422, detail="APPEAL_FAILED")
-
-        save_analysis_part(
-            analysis_id,
-            payload,
-            "appeal",
-            res["appeal"],
-        )
-
-        used_before = int(redis.get(used_key) or 0)
-
-        pipe = redis.pipeline()
-        used = used_before
-
-        if used < 2:
-            pipe.incr(used_key)
-
-            ttl = redis.ttl(used_key)
-
-            if ttl == -1:
-                pipe.expire(used_key, 24 * 60 * 60)
-
-            pipe.execute()
-            used += 1
-
-        return {
-            "status": "success",
-            "appeal": res["appeal"],
-            "cached": False,
-            "used": used,
-            "limit": 2,
-        }
-
-    except Exception as e:
-        print("APPEAL ENDPOINT ERROR:", e)
-        raise

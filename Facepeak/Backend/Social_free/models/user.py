@@ -10,29 +10,64 @@ class User(Base):
 
     id = Column(Integer, primary_key=True)
 
-    username = Column(String(50), unique=True, nullable=False, index=True)
+    google_id = Column(String(255), unique=True, nullable=False, index=True)
     email = Column(String(255), unique=True, nullable=True, index=True)
 
-    password_hash = Column(String, nullable=True)
+    username = Column(String(100), nullable=True, index=True)
 
+    profile_image_url = Column(String, nullable=True)
     bio = Column(String(500), nullable=True)
 
-    # 🔥 PROFILE
-    profile_image_url = Column(String, nullable=True)
+    weekly_potential_range = Column(String(50), nullable=True)
 
-    # 🔒 PRIVACY
-    is_private = Column(Boolean, nullable=False, server_default=text("true"), index=True)
+    reach_target_percentile = Column(
+        Integer,
+        nullable=False,
+        default=50,
+        server_default=text("50"),
+    )
 
-    # STATUS
-    is_active = Column(Boolean, nullable=False, server_default=text("true"), index=True)
-    is_banned = Column(Boolean, nullable=False, server_default=text("false"), index=True)
+    is_active = Column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
+        index=True,
+    )
 
-    # 🔥 SOCIAL LIVE STATE
-    is_live = Column(Boolean, nullable=False, server_default=text("false"), index=True)
-    social_activated_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    is_banned = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+        index=True,
+    )
+
+    is_live = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+        index=True,
+    )
+
+    social_activated_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+
+    # 🔥 NEW
+    last_social_rescore_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+
     has_seen_social_explainer = Column(
         Boolean,
         nullable=False,
+        default=False,
         server_default=text("false"),
     )
 
@@ -49,33 +84,47 @@ class User(Base):
         index=True,
     )
 
-    # =========================
-    # 🔥 RELATIONS
-    # =========================
+    # ======================
+    # 🔗 FOLLOW RELATIONS
+    # ======================
 
-    # STATS (1-1)
+    followers = relationship(
+        "Follow",
+        foreign_keys="Follow.following_id",
+        back_populates="following",
+        cascade="all, delete-orphan",
+    )
+
+    following = relationship(
+        "Follow",
+        foreign_keys="Follow.follower_id",
+        back_populates="follower",
+        cascade="all, delete-orphan",
+    )
+
     stats = relationship(
         "UserStats",
         back_populates="user",
         uselist=False,
         cascade="all, delete",
-        lazy="selectin"
+        lazy="selectin",
     )
 
-    # 🔥 PSL HISTORY (1-M)
     psl_history = relationship(
         "UserPSL",
         back_populates="user",
         cascade="all, delete",
-        lazy="selectin"
+        lazy="selectin",
     )
-
-    # =========================
-    # INDEXES
-    # =========================
 
     __table_args__ = (
         Index("idx_user_active_created", "is_active", "created_at"),
         Index("idx_user_last_active", "last_active_at"),
         Index("idx_user_live_created", "is_live", "created_at"),
+
+        # 🔥 NEW
+        Index(
+            "idx_user_last_social_rescore",
+            "last_social_rescore_at",
+        ),
     )

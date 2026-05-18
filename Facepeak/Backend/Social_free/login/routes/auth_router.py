@@ -29,7 +29,7 @@ from Backend.Social_free.login.google_verify import verify_firebase_token
 # RATE LIMIT
 from Backend.Social_free.auth_protection import protect_google_auth
 
-# REDIS (ASYNC)
+# REDIS
 from Backend.Social_free.redis import safe_set, safe_getdel, safe_delete
 
 logger = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ async def google_auth(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        protect_google_auth(request)
+        await protect_google_auth(request)
 
         try:
             decoded = await verify_firebase_token(body.id_token)
@@ -85,7 +85,6 @@ async def google_auth(
         access = create_access_token(user.id)
         refresh = create_refresh_token(user.id, jti=jti)
 
-        # 🔥 ASYNC REDIS
         await safe_set(
             f"refresh:{jti}",
             json.dumps({
@@ -100,6 +99,7 @@ async def google_auth(
             "access_token": access,
             "refresh_token": refresh,
             "user_id": user.id,
+            "username": getattr(user, "username", None),  # ✅ fix
         }
 
     except HTTPException:
@@ -110,7 +110,7 @@ async def google_auth(
 
 
 # =========================
-# 🔥 REFRESH (ATOMIC ASYNC)
+# 🔥 REFRESH
 # =========================
 
 @router.post("/refresh")
@@ -121,13 +121,16 @@ async def refresh(body: RefreshBody):
         if payload.get("type") != "refresh":
             raise HTTPException(401, "INVALID_TOKEN_TYPE")
 
-        user_id = int(payload.get("sub"))
+        sub = payload.get("sub")
+        if not sub:
+            raise HTTPException(401, "INVALID_TOKEN")
+
+        user_id = int(sub)
         jti = payload.get("jti")
 
         if not jti:
             raise HTTPException(401, "INVALID_TOKEN")
 
-        # 🔥 ATOMIC ASYNC
         stored = await safe_getdel(f"refresh:{jti}")
 
         if not stored:
@@ -141,7 +144,6 @@ async def refresh(body: RefreshBody):
         if session_data.get("user_id") != user_id:
             raise HTTPException(401, "INVALID_SESSION_OWNER")
 
-        # 🔥 ROTATE
         new_jti = generate_jti()
 
         access = create_access_token(user_id)
@@ -199,10 +201,11 @@ async def get_me(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        return await user_service.get_full_user_snapshot(
+        data = await user_service.get_full_user_snapshot(
             db,
             current_user.id,
         )
+        return data
 
     except Exception as e:
         logger.exception(f"[GET ME ERROR] {e}")

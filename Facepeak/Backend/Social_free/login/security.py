@@ -4,11 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import json
 import logging
+import re
 
 from Backend.Social_free.login.database import get_db
 from Backend.Social_free.login.token_service import decode_token
 from Backend.Social_free.models.user import User
-from Backend.Social_free.redis import redis_client
+from Backend.Social_free.redis import safe_get, safe_set
 
 logger = logging.getLogger(__name__)
 
@@ -17,13 +18,15 @@ security = HTTPBearer()
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-    token = credentials.credentials
+    token = credentials.credentials if credentials else None
 
     try:
         payload = decode_token(token)
-    except:
+    except HTTPException:
+        raise
+    except Exception:
         raise HTTPException(401, "INVALID_TOKEN")
 
     if payload.get("type") != "access":
@@ -35,14 +38,13 @@ async def get_current_user(
 
     try:
         user_id = int(user_id)
-    except:
+    except Exception:
         raise HTTPException(401, "INVALID_TOKEN_PAYLOAD")
 
     cache_key = f"user:{user_id}"
 
-    # 🔥 CACHE FIRST (RETURN EARLY)
     try:
-        cached = redis_client.get(cache_key)
+        cached = await safe_get(cache_key)
         if cached:
             data = json.loads(cached)
 
@@ -51,12 +53,11 @@ async def get_current_user(
 
             if data.get("is_banned", False):
                 raise HTTPException(403, "USER_BANNED")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"[SECURITY CACHE READ FAIL] {e}")
 
-            return data  # 🔥 RETURN FROM CACHE
-    except:
-        pass
-
-    # 🔥 DB FALLBACK
     result = await db.execute(
         select(User).where(User.id == user_id)
     )
@@ -71,18 +72,31 @@ async def get_current_user(
     if getattr(user, "is_banned", False):
         raise HTTPException(403, "USER_BANNED")
 
+    raw_username = getattr(user, "username", None)
+
+    if raw_username:
+        cleaned_username = re.sub(r"[^A-Za-z]", "", raw_username.strip())[:8]
+        username = (
+            cleaned_username[0].upper() + cleaned_username[1:].lower()
+            if cleaned_username
+            else "User"
+        )
+    else:
+        username = "User"
+
     user_data = {
         "id": user.id,
         "email": user.email,
-        "username": user.username,
+        "google_id": getattr(user, "google_id", None),
+        "username": username,
         "bio": user.bio,
         "is_active": user.is_active,
         "is_banned": getattr(user, "is_banned", False),
     }
 
     try:
-        redis_client.set(cache_key, json.dumps(user_data), ex=120)
-    except:
-        pass
+        await safe_set(cache_key, json.dumps(user_data), ex=120)
+    except Exception as e:
+        logger.warning(f"[SECURITY CACHE WRITE FAIL] {e}")
 
-    return user_data
+    return user

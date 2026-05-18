@@ -1,5 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    >
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- 🌐 NETWORK -->
     <uses-permission android:name="android.permission.INTERNET"/>
@@ -7,6 +6,9 @@
 
     <!-- 📸 CAMERA (OBAVEZNO) -->
     <uses-permission android:name="android.permission.CAMERA"/>
+
+    <!-- 🔔 NOTIFICATIONS (ANDROID 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
     <!-- 🔥 PERFORMANCE (FRONT CAMERA REQUIRED) -->
     <uses-feature

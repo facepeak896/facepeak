@@ -26,11 +26,11 @@ def load_psl_model():
 # TIER SYSTEM (UI + DATA)
 # =========================
 TIER_DATA = {
-    1: {"name": "Needs improvement"},
-    2: {"name": "Lower tier"},
-    3: {"name": "Average"},
-    4: {"name": "Above average"},
-    5: {"name": "High tier"},
+    1: {"name": "Sub-3"},
+    2: {"name": "Sub-5"},
+    3: {"name": "LTN"},
+    4: {"name": "MTN"},
+    5: {"name": "HTN"},
     6: {"name": "Chadlite"},
     7: {"name": "Chad"},
     8: {"name": "Elite"},
